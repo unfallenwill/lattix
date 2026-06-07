@@ -1,0 +1,37 @@
+{
+  "name": "taskcli",
+  "version": "1.0.0",
+  "description": "A beautiful CLI task manager",
+  "main": "dist/index.js",
+  "bin": {
+    "taskcli": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest --verbose",
+    "lint": "echo 'no linter yet'"
+  },
+  "keywords": [
+    "cli",
+    "task",
+    "manager",
+    "todo"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^15.0.0",
+    "inquirer": "^8.2.7"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.9",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.9.2",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
