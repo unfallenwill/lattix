@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import { Task } from './types';
+import { Task } from './types.js';
 
 const STORE_DIR = path.join(os.homedir(), '.taskcli');
 const STORE_FILE = path.join(STORE_DIR, 'tasks.json');

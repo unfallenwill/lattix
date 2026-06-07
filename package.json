@@ -2,6 +2,7 @@
   "name": "taskcli",
   "version": "1.0.0",
   "description": "A beautiful CLI task manager",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "taskcli": "dist/index.js"
@@ -9,9 +10,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "ts-node src/index.tsx",
     "test": "jest --verbose",
-    "lint": "echo 'no linter yet'"
+    "lint": "echo 'no linter yet yet'"
   },
   "keywords": [
     "cli",
@@ -21,17 +22,23 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@inkjs/ui": "^2.0.0",
     "chalk": "^4.1.2",
     "commander": "^15.0.0",
-    "inquirer": "^8.2.7"
+    "ink": "^5.0.0",
+    "react": "^18.3.1"
   },
   "devDependencies": {
-    "@types/inquirer": "^9.0.9",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.9.2",
+    "@types/react": "^18.3.31",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
+  },
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
   }
 }
