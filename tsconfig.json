@@ -16,8 +16,13 @@
     "declarationMap": true,
     "sourceMap": true,
     "jsx": "react-jsx",
-    "ignoreDeprecations": "6.0"
+    "ignoreDeprecations": "6.0",
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist"]
 }

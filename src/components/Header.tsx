@@ -1,10 +1,10 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import { BRAND, DIM } from '../utils/colors.js';
+import React from 'react'
+import { Box, Text } from 'ink'
+import { BRAND, DIM } from '../utils/colors.js'
 
 interface HeaderProps {
-  taskCount: number;
-  view: string;
+  taskCount: number
+  view: string
 }
 
 export const Header: React.FC<HeaderProps> = ({ taskCount, view }) => {
@@ -20,5 +20,5 @@ export const Header: React.FC<HeaderProps> = ({ taskCount, view }) => {
       <Text>{view}</Text>
       <Text color={DIM}>{taskCount} tasks</Text>
     </Box>
-  );
-};
+  )
+}

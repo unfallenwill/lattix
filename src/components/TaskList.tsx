@@ -1,45 +1,56 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
-import { Task } from '../types.js';
-import { DIM } from '../utils/colors.js';
-import { TaskItem } from './TaskItem.js';
+import { useState, useEffect } from 'react'
+import { Box, Text, useInput } from 'ink'
+import type { Task } from '../types.js'
+import { DIM } from '../utils/colors.js'
+import { TaskItem } from './TaskItem.js'
 
 interface TaskListProps {
-  tasks: Task[];
-  onSelectTask: (task: Task) => void;
-  onDeleteTask: (id: string) => void;
-  onBack: () => void;
+  tasks: Task[]
+  onSelectTask: (task: Task) => void
+  onDeleteTask: (id: string) => void
+  onBack: () => void
 }
 
-export const TaskList: React.FC<TaskListProps> = ({ tasks, onSelectTask, onDeleteTask, onBack }) => {
-  const [selectedIndex, setSelectedIndex] = useState(0);
+export const TaskList: React.FC<TaskListProps> = ({
+  tasks,
+  onSelectTask,
+  onDeleteTask,
+  onBack,
+}) => {
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
   useEffect(() => {
     if (selectedIndex >= tasks.length) {
-      setSelectedIndex(0);
+      setSelectedIndex(0)
     }
-  }, [tasks.length, selectedIndex]);
+  }, [tasks.length, selectedIndex])
 
   useInput((input, key) => {
     if (key.upArrow) {
-      setSelectedIndex(prev => Math.max(0, prev - 1));
+      setSelectedIndex((prev) => Math.max(0, prev - 1))
     } else if (key.downArrow) {
-      setSelectedIndex(prev => Math.min(tasks.length - 1, prev + 1));
+      setSelectedIndex((prev) => Math.min(tasks.length - 1, prev + 1))
     } else if (key.return && tasks.length > 0) {
-      onSelectTask(tasks[selectedIndex]);
+      const selectedTask = tasks[selectedIndex]
+      if (selectedTask) {
+        onSelectTask(selectedTask)
+      }
     } else if (input === 'd' && tasks.length > 0) {
-      onDeleteTask(tasks[selectedIndex].id);
+      const selectedTask = tasks[selectedIndex]
+      if (selectedTask) {
+        onDeleteTask(selectedTask.id)
+      }
     } else if (key.escape) {
-      onBack();
+      onBack()
     }
-  });
+  })
 
   if (tasks.length === 0) {
     return (
       <Box flexDirection="column">
         <Text color={DIM}>No tasks found. Press 'a' to add a task.</Text>
       </Box>
-    );
+    )
   }
 
   return (
@@ -55,5 +66,5 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, onSelectTask, onDelet
         <TaskItem key={task.id} task={task} selected={index === selectedIndex} />
       ))}
     </Box>
-  );
-};
+  )
+}
