@@ -97,7 +97,7 @@ export default function App() {
       <Box flexDirection="column" flexGrow={1}>
         {view === 'menu' && (
           <Box flexDirection="column" padding={1}>
-            <Text bold>Welcome to TaskCLI</Text>
+            <Text bold>Welcome to TaskNexus</Text>
             <Box marginTop={1}>
               <Select options={menuOptions} onChange={handleMenuSelect} />
             </Box>

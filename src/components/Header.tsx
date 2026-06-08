@@ -16,7 +16,7 @@ export const Header: React.FC<HeaderProps> = ({ taskCount, view }) => {
       justifyContent="space-between"
       width="100%"
     >
-      <Text color={BRAND}>taskcli</Text>
+      <Text color={BRAND}>tasknexus</Text>
       <Text>{view}</Text>
       <Text color={DIM}>{taskCount} tasks</Text>
     </Box>

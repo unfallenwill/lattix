@@ -1,11 +1,11 @@
 {
-  "name": "taskcli",
+  "name": "tasknexus",
   "version": "1.0.0",
   "description": "A beautiful CLI task manager",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "taskcli": "dist/index.js"
+    "tasknexus": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

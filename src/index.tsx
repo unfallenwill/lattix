@@ -8,7 +8,7 @@ import { Task } from './types.js';
 import App from './app.js';
 
 const program = new Command();
-program.name('taskcli').version('1.0.0').description('A beautiful CLI task manager');
+program.name('tasknexus').version('1.0.0').description('A beautiful CLI task manager');
 
 // Helper component for showing messages and auto-exiting
 const SuccessMessage = ({ text }: { text: string }) => {
