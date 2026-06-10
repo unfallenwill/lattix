@@ -1,0 +1,36 @@
+{
+  "name": "@lattix/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "lattix-core": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node ./dist/cli.js",
+    "dev": "tsx ./src/cli.ts",
+    "test": "jest --config ../../jest.config.js --passWithNoTests"
+  },
+  "dependencies": {
+    "@lattix/protocol": "0.1.0",
+    "@lattix/shared": "0.1.0",
+    "better-sqlite3": "^11.5.0",
+    "ulidx": "^2.4.1",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/ws": "^8.5.13"
+  }
+}

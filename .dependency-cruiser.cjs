@@ -12,7 +12,7 @@ module.exports = {
     },
     {
       name: 'no-orphans',
-      comment: 'No orphan modules (unreachable from index.tsx)',
+      comment: 'No orphan modules (unreachable from a package index.ts)',
       severity: 'warn',
       from: {
         orphan: true,
@@ -24,75 +24,53 @@ module.exports = {
       name: 'no-test-in-prod',
       severity: 'error',
       comment: 'Production code must not import test code',
-      from: { pathNot: '^(__tests__|tests)/' },
-      to: { path: '^(__tests__|tests)/' },
+      from: { pathNot: '(__tests__|tests)/' },
+      to: { path: '(__tests__|tests)/' },
     },
 
-    // === Layer Rules ===
+    // === Layer Rules (cross-package) ===
     //
-    // Architecture:
-    //   src/
-    //     index.tsx       → entry point (imports app, components, utils, store, types)
-    //     app.tsx         → main app component (imports components, utils, store, types)
-    //     components/     → React components (imports utils, store, types)
-    //     utils/         → foundation (no upward imports)
-    //     store.ts, types.ts → shared modules
+    //   packages/
+    //     protocol/  → frames, methods, errors (foundational, no upward deps)
+    //     shared/    → domain types, FieldRegistry (may import from protocol)
+    //     client/    → WebSocket SDK (may import from protocol, shared)
+    //     core/      → server-side engine (may import from protocol, shared)
+    //     tui/       → TUI client (may import from protocol, shared, client)
 
     {
-      name: 'utils-no-upward-imports',
+      name: 'protocol-no-upward-imports',
       severity: 'error',
-      comment:
-        'utils/ is foundational — must not import from components/, app.tsx, or index.tsx',
-      from: { path: '^src/utils/' },
-      to: {
-        path: ['^src/components/', '^src/app\\.tsx$', '^src/index\\.tsx$'],
-      },
+      comment: 'protocol/ is foundational — must not import from other packages',
+      from: { path: '^packages/protocol/' },
+      to: { path: '^packages/(?!protocol/)' },
     },
-
     {
-      name: 'components-no-app-imports',
+      name: 'shared-may-import-protocol-only',
       severity: 'error',
-      comment:
-        'components/ should not import from app.tsx or index.tsx (avoid circularity)',
-      from: { path: '^src/components/' },
-      to: {
-        path: ['^src/app\\.tsx$', '^src/index\\.tsx$'],
-      },
+      comment: 'shared/ may only import from protocol/',
+      from: { path: '^packages/shared/' },
+      to: { path: '^packages/(?!shared/|protocol/)' },
     },
-
     {
-      name: 'index-only-entry',
+      name: 'client-may-import-shared-and-protocol',
       severity: 'error',
-      comment:
-        'index.tsx should only import from app.tsx, components/, utils/, store, and types',
-      from: { path: '^src/index\\.tsx$' },
-      to: {
-        path: '^src/',
-        pathNot: [
-          '^src/app\\.tsx$',
-          '^src/components/',
-          '^src/utils/',
-          '^src/store\\.ts$',
-          '^src/types\\.ts$',
-        ],
-      },
+      comment: 'client/ may import from shared/ and protocol/ only',
+      from: { path: '^packages/client/' },
+      to: { path: '^packages/(?!client/|shared/|protocol/)' },
     },
-
     {
-      name: 'app-only-structured-imports',
+      name: 'core-may-import-shared-and-protocol',
       severity: 'error',
-      comment:
-        'app.tsx should only import from components/, utils/, store, and types',
-      from: { path: '^src/app\\.tsx$' },
-      to: {
-        path: '^src/',
-        pathNot: [
-          '^src/components/',
-          '^src/utils/',
-          '^src/store\\.ts$',
-          '^src/types\\.ts$',
-        ],
-      },
+      comment: 'core/ may import from shared/ and protocol/ only',
+      from: { path: '^packages/core/' },
+      to: { path: '^packages/(?!core/|shared/|protocol/)' },
+    },
+    {
+      name: 'tui-may-import-client-shared-protocol',
+      severity: 'error',
+      comment: 'tui/ may import from client/, shared/, and protocol/ only',
+      from: { path: '^packages/tui/' },
+      to: { path: '^packages/(?!tui/|client/|shared/|protocol/)' },
     },
   ],
   options: {
@@ -101,6 +79,9 @@ module.exports = {
     doNotFollow: {
       path: 'node_modules',
     },
-    moduleSystems: ['es6'],
+    exclude: {
+      path: 'packages/.*/dist',
+    },
+    moduleSystems: ['es6', 'amd'],
   },
 }

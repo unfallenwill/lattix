@@ -1,0 +1,35 @@
+{
+  "name": "@lattix/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "lattix": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node ./dist/cli.js",
+    "dev": "tsx ./src/cli.tsx",
+    "test": "jest --config ../../jest.config.js --passWithNoTests"
+  },
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "@lattix/client": "0.1.0",
+    "@lattix/protocol": "0.1.0",
+    "@lattix/shared": "0.1.0",
+    "ink": "^5.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31"
+  }
+}

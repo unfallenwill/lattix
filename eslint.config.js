@@ -3,17 +3,22 @@ import prettierConfig from 'eslint-config-prettier'
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      '**/*.d.ts',
+    ],
   },
   {
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['packages/**/src/**/*.{ts,tsx}'],
     plugins: {
       '@typescript-eslint': tseslint.plugin,
     },
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: './tsconfig.json',
+        project: './packages/*/tsconfig.json',
         tsconfigRootDir: import.meta.dirname,
       },
     },
