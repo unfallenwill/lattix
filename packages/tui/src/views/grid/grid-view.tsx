@@ -17,6 +17,7 @@ import {
   formatISODate,
   parseISODate,
 } from '../../editors/calendar.jsx'
+import { fieldIcon, ICON_SLOT } from '../../visual/field-icons.js'
 import type { SelectOptions } from '@lattix/protocol'
 
 const ROW_PADDING = 1
@@ -608,6 +609,13 @@ function renderHeader(
       const isActive = i === activeCol
       const isSorted = sortKey === f.id
       const arrow = isSorted ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+      // Header layout: [icon slot 2col][space][name][arrow]. The icon is
+      // rendered as its own dim Text so it stays visually subordinate to
+      // the field name even when the column is active (bold + cyan).
+      // Inner budget for the name = column width − right border − 2×padX
+      // − icon slot − 1 separator.
+      const cellInner = Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING - 1)
+      const nameBudget = Math.max(1, cellInner - ICON_SLOT - 1)
       return React.createElement(
         Box,
         {
@@ -620,10 +628,11 @@ function renderHeader(
           borderBottom: false,
           borderLeft: false,
         },
+        React.createElement(Text, { dimColor: true }, fieldIcon(f.type) + ' '),
         React.createElement(
           Text,
           { bold: isActive, color: isActive ? 'cyan' : undefined },
-          truncate(f.name + arrow, widths[i] ?? MIN_COL_WIDTH),
+          truncate(f.name + arrow, nameBudget),
         ),
       )
     }),

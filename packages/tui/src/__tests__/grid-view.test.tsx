@@ -481,6 +481,26 @@ describe('GridView', () => {
     expect(frame).not.toMatch(/[╭╮╯╰]/)
     api.unmount()
   })
+
+  it('column headers paint a field-type icon next to each name', async () => {
+    // Pin the icon set so the assertion doesn't depend on whichever
+    // terminal the test happens to run under.
+    const prev = process.env.LATTIX_ICONS
+    process.env.LATTIX_ICONS = 'ascii'
+    try {
+      const { api } = await mountGrid()
+      const frame = api.lastFrame() ?? ''
+      expect(frame).toMatch(/T\s+Title/)
+      expect(frame).toMatch(/№\s+Priority/)
+      expect(frame).toMatch(/◉\s+Status/)
+      expect(frame).toMatch(/☑\s+Done/)
+      expect(frame).toMatch(/▦\s+Due/)
+      api.unmount()
+    } finally {
+      if (prev === undefined) delete process.env.LATTIX_ICONS
+      else process.env.LATTIX_ICONS = prev
+    }
+  })
 })
 
 // Tiny ANSI stripper for assertions that don't care about color codes.
