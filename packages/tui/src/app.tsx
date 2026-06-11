@@ -4,7 +4,7 @@ import type { LattixConnection, ConnectionState } from '@lattix/client'
 import type { Table } from '@lattix/shared'
 import { DataStore } from './store/data-store.js'
 import { GridView } from './views/grid/grid-view.jsx'
-import { StatusBar } from './widgets/status-bar.jsx'
+import { StatusBar, type StatusFeedback } from './widgets/status-bar.jsx'
 import { TableSwitcher } from './widgets/table-switcher.jsx'
 import type { InputMode } from './hooks/use-input-dispatcher.js'
 import { useDataStore } from './hooks/use-data-store.js'
@@ -24,6 +24,7 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
     col: number
     cols: number
   } | null>(null)
+  const [feedback, setFeedback] = React.useState<StatusFeedback | null>(null)
   const [pendingDeleteRow, setPendingDeleteRow] = React.useState<number | null>(null)
 
   React.useEffect(() => {
@@ -84,7 +85,6 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
     React.createElement(GridView, {
       store,
       mode,
-      onModeChange: setMode,
       onChangeMode: setMode,
       onNewRecord: () => {
         if (!currentTableId) return
@@ -95,6 +95,7 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
         setDialog('confirm-delete')
       },
       onStatus: setPosition,
+      onFeedback: setFeedback,
     }),
     React.createElement(HelpView, { active: dialog === 'help' }),
     React.createElement(TableSwitcherView, {
@@ -129,6 +130,7 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
       mode,
       hints,
       position,
+      feedback,
     }),
   )
 }

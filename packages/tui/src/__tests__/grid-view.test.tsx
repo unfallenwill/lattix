@@ -137,7 +137,6 @@ class FakeConn {
 
 interface MountOpts {
   mode?: 'navigation' | 'editing' | 'dialog'
-  onModeChange?: (m: 'navigation' | 'editing' | 'dialog') => void
   onChangeMode?: (m: 'navigation' | 'editing' | 'dialog') => void
   onNewRecord?: () => void
   onDeleteRecord?: (row: number) => void
@@ -153,7 +152,6 @@ async function mountGrid(
   const props = {
     store,
     mode: opts.mode ?? 'navigation',
-    onModeChange: opts.onModeChange ?? (() => undefined),
     onChangeMode: opts.onChangeMode ?? (() => undefined),
     onNewRecord: opts.onNewRecord ?? (() => undefined),
     onDeleteRecord: opts.onDeleteRecord ?? (() => undefined),
@@ -245,7 +243,6 @@ describe('GridView', () => {
       React.createElement(GridView, {
         store,
         mode: 'navigation',
-        onModeChange: () => undefined,
         onChangeMode: () => undefined,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
@@ -270,7 +267,6 @@ describe('GridView', () => {
       return React.createElement(GridView, {
         store,
         mode,
-        onModeChange: setMode,
         onChangeMode: setMode,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
@@ -304,7 +300,6 @@ describe('GridView', () => {
       return React.createElement(GridView, {
         store,
         mode,
-        onModeChange: setMode,
         onChangeMode: setMode,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
@@ -344,7 +339,6 @@ describe('GridView', () => {
       return React.createElement(GridView, {
         store,
         mode,
-        onModeChange: setMode,
         onChangeMode: setMode,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
@@ -383,7 +377,6 @@ describe('GridView', () => {
       return React.createElement(GridView, {
         store,
         mode,
-        onModeChange: setMode,
         onChangeMode: setMode,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
@@ -447,7 +440,6 @@ describe('GridView', () => {
       React.createElement(GridView, {
         store,
         mode: 'navigation',
-        onModeChange: () => undefined,
         onChangeMode: () => undefined,
         onNewRecord: () => undefined,
         onDeleteRecord: () => undefined,
