@@ -656,6 +656,9 @@ function renderRow(
         edit,
         Boolean(selectHere),
         select,
+        // Inner width = column width minus the box's horizontal padding,
+        // so formatCell truncates against the actual visible character count.
+        Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING),
       )
       return React.createElement(
         Box,
@@ -683,10 +686,10 @@ function renderCell(
   edit: EditState | null,
   selectOpen: boolean,
   select: SelectState | null,
+  width: number,
 ): JSX.Element {
   const colActive = isEditing || selectOpen
   const inverse = rowActive && !colActive
-  const width = (field as unknown as { _w?: number })._w ?? MIN_COL_WIDTH
   if (isEditing && edit) {
     if (field.type === 'number') {
       // Drive the in-cell editor from the keystroke buffer (same model as

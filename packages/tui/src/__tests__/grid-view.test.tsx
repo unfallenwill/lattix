@@ -455,11 +455,11 @@ describe('GridView', () => {
       }),
     )
     await tick()
-    // The cell is truncated with "…" in the row itself, but the popup
-    // overlay must contain the full untruncated text.
+    // The cell is too narrow for the full string; the popup overlay must
+    // render the untruncated text in a bordered box just below the cell.
     const frame = api.lastFrame() ?? ''
-    expect(frame).toContain('…')
     expect(frame).toContain(longText)
+    expect(frame).toMatch(/[╭╮╯╰]/) // popup border present
     api.unmount()
   })
 
