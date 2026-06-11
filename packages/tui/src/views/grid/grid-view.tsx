@@ -397,6 +397,9 @@ export function GridView(props: GridViewProps): JSX.Element {
     edit?.field.type === 'date'
       ? renderCalendarPopup(edit, cursor, start, colWidths, viewportRows)
       : null,
+    !edit && !select
+      ? renderOverflowPopup(cursor, start, fields, records, colWidths, viewportRows)
+      : null,
   )
 }
 
@@ -404,6 +407,81 @@ export function GridView(props: GridViewProps): JSX.Element {
 
 function stripTime(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+// Floating preview for the cell under the cursor when its content is wider
+// than the column. Same positioning model as the other popups: drops below
+// the cell by default, flips upward when there isn't enough room.
+function renderOverflowPopup(
+  cursor: Cursor,
+  start: number,
+  fields: Field[],
+  records: RecordRow[],
+  colWidths: number[],
+  viewportRows: number,
+): JSX.Element | null {
+  const field = fields[cursor.col]
+  const record = records[cursor.row]
+  if (!field || !record) return null
+  // Only the value-rendering field types make sense here. Checkbox cells
+  // never overflow, select cells are visually compact, and dates are fixed-
+  // width — text and number cells are where long content actually shows up.
+  if (field.type === 'checkbox' || field.type === 'select') return null
+  const value = record.data[field.id]
+  if (value === null || value === undefined) return null
+  const raw = field.type === 'date' ? String(value) : String(value)
+  const cellWidth = colWidths[cursor.col] ?? MIN_COL_WIDTH
+  // Subtract the 2 chars of horizontal padding the cell box has so the
+  // "fits in cell" check matches what the user actually sees.
+  const visibleWidth = Math.max(1, cellWidth - 2 * ROW_PADDING)
+  if (raw.length <= visibleWidth) return null
+  // Wrap to a comfortable preview width: at least the cell, up to 60 cols.
+  const popupInner = Math.max(visibleWidth, Math.min(60, raw.length))
+  const popupWidth = popupInner + 2 /*paddingX:1 left+right*/ + 2 /*border*/
+  const lines = wrapText(raw, popupInner)
+  const popupHeight = lines.length + 2 /*border*/
+  const headerHeight = 1
+  let leftOffset = ID_COL_WIDTH
+  for (let i = 0; i < cursor.col; i++) leftOffset += colWidths[i] ?? MIN_COL_WIDTH
+  const rowYInGrid = cursor.row - start
+  const cellTop = headerHeight + rowYInGrid
+  const spaceBelow = viewportRows - rowYInGrid - 1
+  const dropsDown = popupHeight <= spaceBelow
+  const top = dropsDown ? cellTop + 1 : Math.max(0, cellTop - popupHeight)
+  return React.createElement(
+    Box,
+    {
+      position: 'absolute',
+      marginLeft: leftOffset,
+      marginTop: top,
+      width: popupWidth,
+      borderStyle: 'round',
+      borderColor: 'gray',
+      paddingX: 1,
+      flexDirection: 'column',
+    },
+    ...lines.map((ln, i) =>
+      React.createElement(Text, { key: i, wrap: 'truncate' }, ln === '' ? ' ' : ln),
+    ),
+  )
+}
+
+function wrapText(s: string, width: number): string[] {
+  // Hard wrap by character — terminals don't care about word boundaries
+  // and our content can be CJK / URLs / paths where word wrap is wrong.
+  // Respect explicit newlines first.
+  const out: string[] = []
+  const segments = s.split(/\r?\n/)
+  for (const seg of segments) {
+    if (seg.length === 0) {
+      out.push('')
+      continue
+    }
+    for (let i = 0; i < seg.length; i += width) {
+      out.push(seg.slice(i, i + width))
+    }
+  }
+  return out
 }
 
 // Floating calendar — same positioning model as the select popup, sized

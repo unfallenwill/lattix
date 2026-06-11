@@ -418,4 +418,57 @@ describe('GridView', () => {
     expect(upd?.data['fDate']).toBe('2027-03-15')
     api.unmount()
   })
+
+  it('overflow popup: long cell content shows full text in a floating preview', async () => {
+    const longText = 'this-is-a-fairly-long-text-value-that-overflows-the-column'
+    class WideConn extends FakeConn {
+      override request<T = unknown>(method: string, params?: unknown): Promise<T> {
+        if (method === 'record.list') {
+          return Promise.resolve({
+            records: [
+              {
+                id: 'r1',
+                tableId: 't1',
+                data: { fTitle: longText, fNum: 1, fDone: false, fStatus: 'todo', fDate: null },
+                createdAt: 0,
+                updatedAt: 0,
+              },
+            ],
+            total: 1,
+          } as T)
+        }
+        return super.request(method, params)
+      }
+    }
+    const fake = new WideConn()
+    const store = new DataStore(fake as unknown as LattixConnection)
+    await store.loadTables()
+    const api = render(
+      React.createElement(GridView, {
+        store,
+        mode: 'navigation',
+        onModeChange: () => undefined,
+        onChangeMode: () => undefined,
+        onNewRecord: () => undefined,
+        onDeleteRecord: () => undefined,
+        onStatus: () => undefined,
+      }),
+    )
+    await tick()
+    // The cell is truncated with "…" in the row itself, but the popup
+    // overlay must contain the full untruncated text.
+    const frame = api.lastFrame() ?? ''
+    expect(frame).toContain('…')
+    expect(frame).toContain(longText)
+    api.unmount()
+  })
+
+  it('overflow popup: short content does not trigger the preview', async () => {
+    const { api } = await mountGrid()
+    const frame = api.lastFrame() ?? ''
+    // Cursor is on (0, 0) = "First" which fits — popup would be drawn with
+    // a rounded border (╭/╮). No popup => no rounded corners on screen.
+    expect(frame).not.toMatch(/[╭╮]/)
+    api.unmount()
+  })
 })
