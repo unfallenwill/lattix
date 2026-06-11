@@ -291,4 +291,46 @@ describe('GridView', () => {
     expect(fake.updates.some((u) => u.recordId === 'r1' && 'fTitle' in u.data)).toBe(true)
     api.unmount()
   })
+
+  it('number-editing: typing + backspace updates buf live, Enter commits', async () => {
+    // Regression: number cells used to render the original value during
+    // edit instead of the keystroke buffer, so backspace appeared dead.
+    const fake = new FakeConn()
+    const store = new DataStore(fake as unknown as LattixConnection)
+    await store.loadTables()
+
+    function Host(): JSX.Element {
+      const [mode, setMode] = React.useState<'navigation' | 'editing' | 'dialog'>('navigation')
+      return React.createElement(GridView, {
+        store,
+        mode,
+        onModeChange: setMode,
+        onChangeMode: setMode,
+        onNewRecord: () => undefined,
+        onDeleteRecord: () => undefined,
+        onStatus: () => undefined,
+      })
+    }
+
+    const api = render(React.createElement(Host))
+    await tick()
+    api.stdin.write('l') // move to col 1 (number 'Priority', current = 1)
+    await tick(10)
+    api.stdin.write('i') // enter editing — buf seeds with "1"
+    await tick()
+    api.stdin.write('5')
+    await tick(5)
+    // Frame should now show "15" (buf) instead of just "1" (orig value).
+    expect(api.lastFrame() ?? '').toMatch(/15/)
+    api.stdin.write('') // DEL — physical Backspace key
+    await tick(5)
+    expect(api.lastFrame() ?? '').toMatch(/(^|[^0-9])1([^0-9]|$)/) // back to "1"
+    api.stdin.write('9')
+    await tick(5)
+    api.stdin.write('\r') // commit — value is now 19
+    await tick()
+    const upd = fake.updates.find((u) => u.recordId === 'r1' && 'fNum' in u.data)
+    expect(upd?.data['fNum']).toBe(19)
+    api.unmount()
+  })
 })

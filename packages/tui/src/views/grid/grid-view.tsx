@@ -5,7 +5,6 @@ import type { Field, RecordRow } from '@lattix/shared'
 import { useDataStore } from '../../hooks/use-data-store.js'
 import { useInputDispatcher, type InputMode } from '../../hooks/use-input-dispatcher.js'
 import { TextEditor } from '../../editors/text-editor.jsx'
-import { NumberEditor } from '../../editors/number-editor.jsx'
 import { CheckboxEditor } from '../../editors/checkbox-editor.jsx'
 import { SelectEditor } from '../../editors/select-editor.jsx'
 import { DateEditor } from '../../editors/date-editor.jsx'
@@ -494,7 +493,9 @@ function renderCell(
   const width = (field as unknown as { _w?: number })._w ?? MIN_COL_WIDTH
   if (isEditing && edit) {
     if (field.type === 'number') {
-      return React.createElement(NumberEditor, { value: value as number | null, active: true })
+      // Drive the in-cell editor from the keystroke buffer (same model as
+      // text/date) so the user sees their typing and backspacing live.
+      return React.createElement(TextEditor, { value: edit.buf, active: true, placeholder: '0' })
     }
     if (field.type === 'date') {
       return React.createElement(DateEditor, {
