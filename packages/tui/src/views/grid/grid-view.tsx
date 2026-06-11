@@ -1,24 +1,25 @@
+/**
+ * GridView — paints the table, owns row/column cursor, owns the edit
+ * session. Cell behaviour lives in editors (see ../../editors). GridView
+ * never inspects `field.type` and never special-cases a field; it talks
+ * to editors through CellEditor only — the same way shadcn's <Field>
+ * orchestrates without knowing which control it wraps.
+ */
 import React from 'react'
 import { Box, Text, useStdout } from 'ink'
 import type { DataStore } from '../../store/data-store.js'
 import type { Field, RecordRow } from '@lattix/shared'
 import { useDataStore } from '../../hooks/use-data-store.js'
 import { useInputDispatcher, type InputMode } from '../../hooks/use-input-dispatcher.js'
-import { TextEditor } from '../../editors/text-editor.jsx'
-import { CheckboxEditor } from '../../editors/checkbox-editor.jsx'
-import { SelectEditor } from '../../editors/select-editor.jsx'
-import { DateEditor } from '../../editors/date-editor.jsx'
-import {
-  Calendar,
-  CALENDAR_HEIGHT,
-  CALENDAR_WIDTH,
-  addDays,
-  addMonths,
-  formatISODate,
-  parseISODate,
-} from '../../editors/calendar.jsx'
 import { fieldIcon, ICON_SLOT } from '../../visual/field-icons.js'
-import type { SelectOptions } from '@lattix/protocol'
+import type {
+  AnyCellEditor,
+  Feedback,
+  FocusLevel,
+  OverlaySpec,
+  RenderCtx,
+} from '../../editors/types.js'
+import { getEditor } from '../../editors/registry.js'
 
 const ROW_PADDING = 1
 const MIN_COL_WIDTH = 8
@@ -28,11 +29,11 @@ const ID_COL_WIDTH = 12
 export interface GridViewProps {
   store: DataStore
   mode: InputMode
-  onModeChange: (m: InputMode) => void
   onChangeMode: (m: InputMode) => void
   onNewRecord: () => void
   onDeleteRecord: (row: number) => void
   onStatus: (s: { row: number; total: number; col: number; cols: number } | null) => void
+  onFeedback?: (f: Feedback | null) => void
 }
 
 interface Cursor {
@@ -40,25 +41,15 @@ interface Cursor {
   col: number
 }
 
-interface EditState {
+interface EditSession {
   field: Field
   recordId: string
-  buf: string
-  // Only used when field.type === 'date': the day the calendar cursor is
-  // sitting on (controlled by arrow keys; also auto-snaps when buf is a
-  // complete YYYY-MM-DD).
-  calFocus?: Date
-}
-
-interface SelectState {
-  field: Field
-  recordId: string
-  options: { id: string; name: string; color?: string }[]
-  cursor: number
+  state: unknown
+  editor: AnyCellEditor
 }
 
 export function GridView(props: GridViewProps): JSX.Element {
-  const { store, mode, onChangeMode, onNewRecord, onDeleteRecord, onStatus } = props
+  const { store, mode, onChangeMode, onNewRecord, onDeleteRecord, onStatus, onFeedback } = props
   const state = useDataStore(store, (s) => {
     const id = s.getCurrentTableId()
     if (!id) return null
@@ -71,8 +62,7 @@ export function GridView(props: GridViewProps): JSX.Element {
 
   const [cursor, setCursor] = React.useState<Cursor>({ row: 0, col: 0 })
   const [scroll] = React.useState(0)
-  const [edit, setEdit] = React.useState<EditState | null>(null)
-  const [select, setSelect] = React.useState<SelectState | null>(null)
+  const [edit, setEdit] = React.useState<EditSession | null>(null)
   const [sortKey, setSortKey] = React.useState<string | null>(null)
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc')
 
@@ -112,6 +102,30 @@ export function GridView(props: GridViewProps): JSX.Element {
     onStatus({ row: cursor.row, total: records.length, col: cursor.col, cols: fields.length })
   }, [cursor, records.length, fields.length, onStatus])
 
+  // Feedback flow — drives the StatusBar's shadcn-style aria-invalid slot.
+  //   editing → editor.validate() (errors light up red)
+  //   navigation + focused-cell → editor.hint() (grey help text)
+  React.useEffect(() => {
+    if (!onFeedback) return
+    if (edit) {
+      const fb = edit.editor.validate(edit.state, edit.field)
+      if (fb) {
+        onFeedback(fb)
+        return
+      }
+      // No error → show field hint while editing.
+      onFeedback({ kind: 'hint', text: edit.editor.hint(edit.field) })
+      return
+    }
+    const f = fields[cursor.col]
+    if (f) {
+      const ed = getEditor(f.type)
+      onFeedback({ kind: 'hint', text: ed.hint(f) })
+      return
+    }
+    onFeedback(null)
+  }, [edit, cursor.col, fields, onFeedback])
+
   useInputDispatcher({
     mode,
     onNavigation: (input, key) => {
@@ -139,8 +153,8 @@ export function GridView(props: GridViewProps): JSX.Element {
         setCursor((c) => ({ ...c, col: Math.min(fields.length - 1, c.col + 1) }))
         return
       }
-      if (key.return || input === 'i') {
-        startEditing()
+      if (key.return || input === 'i' || input === ' ') {
+        startEditing(input === ' ')
         return
       }
       if (input === 'n') {
@@ -163,114 +177,27 @@ export function GridView(props: GridViewProps): JSX.Element {
       }
     },
     onEditing: (input, key) => {
-      if (select) {
-        if (key.escape) {
-          setSelect(null)
-          onChangeMode('navigation')
-          return
-        }
-        if (input === 'j' || key.downArrow) {
-          setSelect({
-            ...select,
-            cursor: Math.min(select.options.length - 1, select.cursor + 1),
-          })
-          return
-        }
-        if (input === 'k' || key.upArrow) {
-          setSelect({ ...select, cursor: Math.max(0, select.cursor - 1) })
-          return
-        }
-        if (key.return || input === ' ') {
-          commitSelect()
-          return
-        }
-        if (key.tab) {
-          commitSelect()
-          moveRight()
-          return
-        }
-        return
-      }
       if (!edit) return
-      if (key.escape) {
-        setEdit(null)
-        onChangeMode('navigation')
+      const { next, intent } = edit.editor.reduce(edit.state, input, key, edit.field)
+      // Apply state regardless so partial buffers paint live.
+      const nextSession: EditSession = { ...edit, state: next }
+      if (intent === 'cancel') {
+        finishEditing()
         return
       }
-      // Date cells get the calendar treatment: arrow keys move the focused
-      // day, PageUp/Down flip month (Shift = year), Enter commits the
-      // focused day. Typing into buf still works; when buf parses as a
-      // valid YYYY-MM-DD the calendar auto-snaps to it.
-      if (edit.field.type === 'date') {
-        const focus = edit.calFocus ?? stripTime(new Date())
-        if (key.return) {
-          const commitDate = parseISODate(edit.buf) ?? focus
-          setEdit({ ...edit, buf: formatISODate(commitDate), calFocus: commitDate })
-          queueMicrotask(commitEdit)
+      if (intent === 'commit' || intent === 'commit-next') {
+        // Block commit when validation fails — keeps the user inside the
+        // edit session with the red ring lit, instead of silently dropping
+        // the value (matches shadcn's "stay until valid" behaviour).
+        if (edit.editor.validate(next, edit.field) !== null) {
+          setEdit(nextSession)
           return
         }
-        if (key.leftArrow) {
-          const next = addDays(focus, -1)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.rightArrow) {
-          const next = addDays(focus, 1)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.upArrow) {
-          const next = addDays(focus, -7)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.downArrow) {
-          const next = addDays(focus, 7)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.pageUp) {
-          const next = addMonths(focus, key.shift ? -12 : -1)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.pageDown) {
-          const next = addMonths(focus, key.shift ? 12 : 1)
-          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
-          return
-        }
-        if (key.backspace || key.delete) {
-          const nextBuf = edit.buf.slice(0, -1)
-          setEdit({ ...edit, buf: nextBuf, calFocus: parseISODate(nextBuf) ?? edit.calFocus })
-          return
-        }
-        if (key.tab) {
-          commitEdit()
-          moveRight()
-          return
-        }
-        if (input && !input.startsWith('\u001b')) {
-          const nextBuf = edit.buf + input
-          setEdit({ ...edit, buf: nextBuf, calFocus: parseISODate(nextBuf) ?? edit.calFocus })
-        }
+        commitEdit(nextSession)
+        if (intent === 'commit-next') moveRight()
         return
       }
-      if (key.return) {
-        commitEdit()
-        return
-      }
-      if (key.backspace || key.delete) {
-        setEdit({ ...edit, buf: edit.buf.slice(0, -1) })
-        return
-      }
-      if (key.tab) {
-        commitEdit()
-        moveRight()
-        return
-      }
-      if (input && !input.startsWith('\u001b')) {
-        setEdit({ ...edit, buf: edit.buf + input })
-      }
+      setEdit(nextSession)
     },
     onDialog: () => {
       onChangeMode('navigation')
@@ -281,76 +208,46 @@ export function GridView(props: GridViewProps): JSX.Element {
     setCursor((c) => ({ ...c, col: Math.min(fields.length - 1, c.col + 1) }))
   }
 
-  function startEditing(): void {
+  function startEditing(spacePressed: boolean): void {
     const field = fields[cursor.col]
     const record = records[cursor.row]
     if (!field || !record) return
-    if (field.type === 'select') {
-      const opts = (field.options as SelectOptions).options as {
-        id: string
-        name: string
-        color?: string
-      }[]
-      const currentIdx = Math.max(
-        0,
-        opts.findIndex((o) => o.id === record.data[field.id]),
-      )
-      setSelect({ field, recordId: record.id, options: opts, cursor: currentIdx })
-      onChangeMode('editing')
+    const editor = getEditor(field.type)
+    if (editor.capability.instant) {
+      // Checkbox-style: no edit mode, just toggle and write back.
+      if (!tableId || !editor.instantValue) return
+      const value = editor.instantValue(record.data[field.id], field)
+      void store
+        .updateRecord({ tableId, recordId: record.id, fieldId: field.id, value })
+        .catch(() => undefined)
       return
     }
-    if (field.type === 'checkbox') {
-      const v = record.data[field.id]
-      const next = !(v === true)
-      if (tableId) {
-        void store
-          .updateRecord({ tableId, recordId: record.id, fieldId: field.id, value: next })
-          .catch(() => undefined)
-      }
-      return
-    }
-    const current = record.data[field.id]
-    const buf = current == null ? '' : typeof current === 'string' ? current : String(current)
-    const calFocus =
-      field.type === 'date' ? (parseISODate(buf) ?? stripTime(new Date())) : undefined
-    setEdit({ field, recordId: record.id, buf, calFocus })
+    // Space in navigation is reserved for instant editors; ignore on others
+    // (so the user doesn't accidentally insert a space into a text buffer).
+    if (spacePressed) return
+    const initial = editor.beginEdit(record.data[field.id], field)
+    setEdit({ field, recordId: record.id, state: initial, editor })
     onChangeMode('editing')
   }
 
-  function commitSelect(): void {
-    if (!select || !tableId) return
-    const chosen = select.options[select.cursor]
-    if (!chosen) {
-      setSelect(null)
-      onChangeMode('navigation')
+  function commitEdit(session: EditSession): void {
+    if (!tableId) {
+      finishEditing()
       return
     }
+    const value = session.editor.commitValue(session.state, session.field)
     void store
       .updateRecord({
         tableId,
-        recordId: select.recordId,
-        fieldId: select.field.id,
-        value: chosen.id,
+        recordId: session.recordId,
+        fieldId: session.field.id,
+        value,
       })
       .catch(() => undefined)
-    setSelect(null)
-    onChangeMode('navigation')
+    finishEditing()
   }
 
-  function commitEdit(): void {
-    if (!edit || !tableId) return
-    let value: unknown = edit.buf
-    if (edit.field.type === 'number') {
-      const n = Number(edit.buf)
-      value = edit.buf.trim() === '' ? null : Number.isFinite(n) ? n : null
-    } else if (edit.field.type === 'date') {
-      value = edit.buf.trim() === '' ? null : edit.buf
-    } else if (edit.field.type === 'text') {
-      value = edit.buf
-    }
-    void store
-      .updateRecord({ tableId, recordId: edit.recordId, fieldId: edit.field.id, value })
-      .catch(() => undefined)
+  function finishEditing(): void {
     setEdit(null)
     onChangeMode('navigation')
   }
@@ -383,7 +280,7 @@ export function GridView(props: GridViewProps): JSX.Element {
     { flexDirection: 'column', flexGrow: 1, minHeight: headerHeight + 3 + footerHeight },
     renderHeader(fields, colWidths, cursor.col, sortKey, sortDir),
     ...visible.map((rec, i) =>
-      renderRow(rec, fields, colWidths, cursor.row === start + i, cursor.col, edit, select),
+      renderRow(rec, fields, colWidths, cursor.row === start + i, cursor.col, edit),
     ),
     React.createElement(
       Box,
@@ -394,22 +291,44 @@ export function GridView(props: GridViewProps): JSX.Element {
         `Showing ${start + 1}-${end} of ${records.length}`,
       ),
     ),
-    select ? renderSelectPopup(select, cursor, start, colWidths, viewportRows) : null,
-    edit?.field.type === 'date'
-      ? renderCalendarPopup(edit, cursor, start, colWidths, viewportRows)
-      : null,
-    !edit && !select
-      ? renderOverflowPopup(cursor, start, fields, records, colWidths, viewportRows)
-      : null,
+    edit ? renderEditorOverlay(edit, cursor, start, colWidths, viewportRows) : null,
+    !edit ? renderOverflowPopup(cursor, start, fields, records, colWidths, viewportRows) : null,
   )
 }
 
-// --- helpers -------------------------------------------------------------
+// --- editor overlay -------------------------------------------------------
 
-function stripTime(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+function renderEditorOverlay(
+  edit: EditSession,
+  cursor: Cursor,
+  start: number,
+  colWidths: number[],
+  viewportRows: number,
+): JSX.Element | null {
+  if (edit.editor.capability.overlay === 'none' || !edit.editor.overlay) return null
+  const spec: OverlaySpec = edit.editor.overlay(edit.state, /* value unused */ null, edit.field)
+  const headerHeight = 1
+  let left = ID_COL_WIDTH
+  for (let i = 0; i < cursor.col; i++) left += colWidths[i] ?? MIN_COL_WIDTH
+  const rowYInGrid = cursor.row - start
+  const cellTop = headerHeight + rowYInGrid
+  const spaceBelow = viewportRows - rowYInGrid - 1
+  const dropsDown = spec.height <= spaceBelow
+  const top = dropsDown ? cellTop + 1 : Math.max(0, cellTop - spec.height)
+  return React.createElement(
+    Box,
+    {
+      position: 'absolute',
+      marginLeft: left,
+      marginTop: top,
+      width: spec.width,
+    },
+    spec.render(),
+  )
 }
 
+// --- overflow continuation ------------------------------------------------
+//
 // Floating overflow continuation — the focused cell appears to "grow
 // taller", spilling extra lines into the rows underneath without pushing
 // anything around. The popup intentionally mimics the cell's own box
@@ -431,20 +350,10 @@ function renderOverflowPopup(
   if (value === null || value === undefined) return null
   const raw = String(value)
   const cellWidth = colWidths[cursor.col] ?? MIN_COL_WIDTH
-  // The cell box has paddingX:1 on both sides AND a 1-char right border —
-  // visible text width is cellWidth - 3. (formatCell uses the same budget
-  // via the `width` arg we now pass it from renderRow.)
   const innerWidth = Math.max(1, cellWidth - 2 * ROW_PADDING - 1)
   if (raw.length <= innerWidth) return null
-  // Skip the first line — that one is already painted inside the cell.
-  // Continuation = everything from char `innerWidth` onward, hard-wrapped
-  // to the same inner width.
   const continuation = wrapText(raw.slice(innerWidth), innerWidth)
   if (continuation.length === 0) return null
-  // Don't spill past the viewport's bottom; if there's not enough room
-  // below the cell, drop the trailing lines (the cell still shows the
-  // first slice + "…" is unnecessary because the continuation makes the
-  // overflow visible).
   const headerHeight = 1
   const rowYInGrid = cursor.row - start
   const cellTop = headerHeight + rowYInGrid
@@ -481,9 +390,6 @@ function renderOverflowPopup(
 }
 
 function wrapText(s: string, width: number): string[] {
-  // Hard wrap by character — terminals don't care about word boundaries
-  // and our content can be CJK / URLs / paths where word wrap is wrong.
-  // Respect explicit newlines first.
   const out: string[] = []
   const segments = s.split(/\r?\n/)
   for (const seg of segments) {
@@ -498,89 +404,7 @@ function wrapText(s: string, width: number): string[] {
   return out
 }
 
-// Floating calendar — same positioning model as the select popup, sized
-// from the Calendar component's exported constants. Flips upward when the
-// row is too close to the status bar.
-function renderCalendarPopup(
-  edit: EditState,
-  cursor: Cursor,
-  start: number,
-  colWidths: number[],
-  viewportRows: number,
-): JSX.Element {
-  const headerHeight = 1
-  let left = ID_COL_WIDTH
-  for (let i = 0; i < cursor.col; i++) left += colWidths[i] ?? MIN_COL_WIDTH
-  const rowYInGrid = cursor.row - start
-  const cellTop = headerHeight + rowYInGrid
-  const spaceBelow = viewportRows - rowYInGrid - 1
-  const dropsDown = CALENDAR_HEIGHT <= spaceBelow
-  const top = dropsDown ? cellTop + 1 : Math.max(0, cellTop - CALENDAR_HEIGHT)
-  const focus = edit.calFocus ?? stripTime(new Date())
-  const selected = parseISODate(edit.buf)
-  return React.createElement(
-    Box,
-    {
-      position: 'absolute',
-      marginLeft: left,
-      marginTop: top,
-      width: CALENDAR_WIDTH,
-    },
-    React.createElement(Calendar, {
-      visibleMonth: focus,
-      focused: focus,
-      selected,
-    }),
-  )
-}
-
-// Floating dropdown — rendered with absolute positioning so it sits on top
-// of subsequent rows instead of pushing them down. Drops below the cell when
-// there's room; flips up when below would overflow into the status bar.
-function renderSelectPopup(
-  select: SelectState,
-  cursor: Cursor,
-  start: number,
-  colWidths: number[],
-  viewportRows: number,
-): JSX.Element {
-  const headerHeight = 1
-  // Left offset = id column + widths of preceding data columns.
-  let left = ID_COL_WIDTH
-  for (let i = 0; i < cursor.col; i++) left += colWidths[i] ?? MIN_COL_WIDTH
-  const cellWidth = colWidths[cursor.col] ?? MIN_COL_WIDTH
-  const longest = select.options.reduce((m, o) => Math.max(m, o.name.length), 0)
-  const popupWidth = Math.max(cellWidth, longest + 4)
-  // Popup is options.length tall + 2 lines of border.
-  const popupHeight = select.options.length + 2
-  // y of the cursor row inside the grid (0-based, after header).
-  const rowYInGrid = cursor.row - start
-  const cellTop = headerHeight + rowYInGrid
-  // Room below the cell: viewport minus cells consumed up to & including cursor.
-  const spaceBelow = viewportRows - rowYInGrid - 1
-  const dropsDown = popupHeight <= spaceBelow
-  const top = dropsDown
-    ? cellTop + 1 // just under the cell
-    : Math.max(0, cellTop - popupHeight) // flip up, anchor above the cell
-  return React.createElement(
-    Box,
-    {
-      position: 'absolute',
-      marginLeft: left,
-      marginTop: top,
-      width: popupWidth,
-      borderStyle: 'round',
-      flexDirection: 'column',
-    },
-    ...select.options.map((o, i) =>
-      React.createElement(
-        Text,
-        { key: o.id, inverse: i === select.cursor, color: o.color },
-        '  ' + o.name,
-      ),
-    ),
-  )
-}
+// --- row + header rendering ----------------------------------------------
 
 function renderHeader(
   fields: Field[],
@@ -609,11 +433,6 @@ function renderHeader(
       const isActive = i === activeCol
       const isSorted = sortKey === f.id
       const arrow = isSorted ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
-      // Header layout: [icon slot 2col][space][name][arrow]. The icon is
-      // rendered as its own dim Text so it stays visually subordinate to
-      // the field name even when the column is active (bold + cyan).
-      // Inner budget for the name = column width − right border − 2×padX
-      // − icon slot − 1 separator.
       const cellInner = Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING - 1)
       const nameBudget = Math.max(1, cellInner - ICON_SLOT - 1)
       return React.createElement(
@@ -643,10 +462,9 @@ function renderRow(
   rec: RecordRow,
   fields: Field[],
   widths: number[],
-  active: boolean,
+  activeRow: boolean,
   activeCol: number,
-  edit: EditState | null,
-  select: SelectState | null,
+  edit: EditSession | null,
 ): JSX.Element {
   const id = rec.id.slice(-6)
   return React.createElement(
@@ -663,27 +481,27 @@ function renderRow(
         borderBottom: false,
         borderLeft: false,
       },
-      React.createElement(Text, { dimColor: true }, id),
+      // Row cursor lives in the id gutter as `▸` (shadcn's `:focus-visible`
+      // ring philosophy: a precise marker beats inverting the whole row).
+      React.createElement(
+        Text,
+        { dimColor: !activeRow, color: activeRow ? 'cyan' : undefined, bold: activeRow },
+        (activeRow ? '▸ ' : '  ') + id,
+      ),
     ),
     ...fields.map((f, i) => {
-      const isActive = active
-      const isEditingThis = edit && isActive && edit.field.id === f.id && edit.recordId === rec.id
-      const selectHere =
-        select && isActive && select.field.id === f.id && select.recordId === rec.id
-      const value = rec.data[f.id]
-      const inner = renderCell(
-        f,
-        value,
-        isActive,
-        Boolean(isEditingThis),
-        edit,
-        Boolean(selectHere),
-        select,
-        // Inner width = column width minus the box's horizontal padding
-        // AND its right border — that's the budget formatCell can paint.
-        Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING - 1),
-        isActive && i === activeCol,
-      )
+      const isCellEditing = edit && activeRow && edit.field.id === f.id && edit.recordId === rec.id
+      const isCellFocused = activeRow && i === activeCol
+      const focus: FocusLevel = isCellEditing ? 'active' : isCellFocused ? 'passive' : 'none'
+      const width = Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING - 1)
+      const editor = getEditor(f.type)
+      const ctx: RenderCtx = { width, focus, readonly: false }
+      const inner = editor.render({
+        state: isCellEditing ? edit.state : null,
+        value: rec.data[f.id],
+        field: f,
+        ctx,
+      })
       return React.createElement(
         Box,
         {
@@ -702,65 +520,7 @@ function renderRow(
   )
 }
 
-function renderCell(
-  field: Field,
-  value: unknown,
-  rowActive: boolean,
-  isEditing: boolean,
-  edit: EditState | null,
-  selectOpen: boolean,
-  select: SelectState | null,
-  width: number,
-  isFocused: boolean,
-): JSX.Element {
-  const colActive = isEditing || selectOpen
-  const inverse = rowActive && !colActive
-  if (isEditing && edit) {
-    if (field.type === 'number') {
-      // Drive the in-cell editor from the keystroke buffer (same model as
-      // text/date) so the user sees their typing and backspacing live.
-      return React.createElement(TextEditor, { value: edit.buf, active: true, placeholder: '0' })
-    }
-    if (field.type === 'date') {
-      return React.createElement(DateEditor, {
-        value: (edit.buf || null) as string | null,
-        active: true,
-      })
-    }
-    return React.createElement(TextEditor, { value: edit.buf, active: true, placeholder: ' ' })
-  }
-  if (selectOpen && select) {
-    return React.createElement(SelectEditor, {
-      value: value as string | null,
-      options: select.options,
-      active: true,
-      open: true,
-      cursor: select.cursor,
-    })
-  }
-  const text = formatCell(field, value, width, isFocused)
-  if (field.type === 'checkbox') {
-    const checked = value === true
-    return React.createElement(CheckboxEditor, { value: checked, active: inverse })
-  }
-  return React.createElement(Text, { inverse, color: rowActive ? 'cyan' : undefined }, text)
-}
-
-function formatCell(field: Field, value: unknown, width: number, isFocused = false): string {
-  if (value === null || value === undefined) return '∅'
-  if (field.type === 'select') {
-    const opts = (field.options as SelectOptions).options as { id: string; name: string }[]
-    const o = opts.find((x) => x.id === value)
-    if (o) return truncate(o.name, width, isFocused)
-  }
-  return truncate(String(value), width, isFocused)
-}
-
-function truncate(s: string, width: number, isFocused = false): string {
-  if (s.length <= width) return s
-  // On the focused cell we drop the "…" so the continuation overlay can
-  // pick up exactly at character `width` — the cell + continuation read
-  // as a single tall paragraph.
-  if (isFocused) return s.slice(0, width)
-  return s.slice(0, Math.max(0, width - 1)) + '…'
+function truncate(s: string, w: number): string {
+  if (s.length <= w) return s
+  return s.slice(0, Math.max(0, w - 1)) + '…'
 }
