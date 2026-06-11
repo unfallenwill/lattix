@@ -382,7 +382,7 @@ export function GridView(props: GridViewProps): JSX.Element {
     { flexDirection: 'column', flexGrow: 1, minHeight: headerHeight + 3 + footerHeight },
     renderHeader(fields, colWidths, cursor.col, sortKey, sortDir),
     ...visible.map((rec, i) =>
-      renderRow(rec, fields, colWidths, cursor.row === start + i, edit, select),
+      renderRow(rec, fields, colWidths, cursor.row === start + i, cursor.col, edit, select),
     ),
     React.createElement(
       Box,
@@ -409,9 +409,11 @@ function stripTime(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-// Floating preview for the cell under the cursor when its content is wider
-// than the column. Same positioning model as the other popups: drops below
-// the cell by default, flips upward when there isn't enough room.
+// Floating overflow continuation — the focused cell appears to "grow
+// taller", spilling extra lines into the rows underneath without pushing
+// anything around. The popup intentionally mimics the cell's own box
+// (same width, same right border, same padding, same cyan focus tint) so
+// the seam between row 1 of the cell and the continuation is invisible.
 function renderOverflowPopup(
   cursor: Cursor,
   start: number,
@@ -423,45 +425,56 @@ function renderOverflowPopup(
   const field = fields[cursor.col]
   const record = records[cursor.row]
   if (!field || !record) return null
-  // Only the value-rendering field types make sense here. Checkbox cells
-  // never overflow, select cells are visually compact, and dates are fixed-
-  // width — text and number cells are where long content actually shows up.
   if (field.type === 'checkbox' || field.type === 'select') return null
   const value = record.data[field.id]
   if (value === null || value === undefined) return null
-  const raw = field.type === 'date' ? String(value) : String(value)
+  const raw = String(value)
   const cellWidth = colWidths[cursor.col] ?? MIN_COL_WIDTH
-  // Subtract the 2 chars of horizontal padding the cell box has so the
-  // "fits in cell" check matches what the user actually sees.
-  const visibleWidth = Math.max(1, cellWidth - 2 * ROW_PADDING)
-  if (raw.length <= visibleWidth) return null
-  // Wrap to a comfortable preview width: at least the cell, up to 60 cols.
-  const popupInner = Math.max(visibleWidth, Math.min(60, raw.length))
-  const popupWidth = popupInner + 2 /*paddingX:1 left+right*/ + 2 /*border*/
-  const lines = wrapText(raw, popupInner)
-  const popupHeight = lines.length + 2 /*border*/
+  // The cell box has paddingX:1 on both sides AND a 1-char right border —
+  // visible text width is cellWidth - 3. (formatCell uses the same budget
+  // via the `width` arg we now pass it from renderRow.)
+  const innerWidth = Math.max(1, cellWidth - 2 * ROW_PADDING - 1)
+  if (raw.length <= innerWidth) return null
+  // Skip the first line — that one is already painted inside the cell.
+  // Continuation = everything from char `innerWidth` onward, hard-wrapped
+  // to the same inner width.
+  const continuation = wrapText(raw.slice(innerWidth), innerWidth)
+  if (continuation.length === 0) return null
+  // Don't spill past the viewport's bottom; if there's not enough room
+  // below the cell, drop the trailing lines (the cell still shows the
+  // first slice + "…" is unnecessary because the continuation makes the
+  // overflow visible).
   const headerHeight = 1
-  let leftOffset = ID_COL_WIDTH
-  for (let i = 0; i < cursor.col; i++) leftOffset += colWidths[i] ?? MIN_COL_WIDTH
   const rowYInGrid = cursor.row - start
   const cellTop = headerHeight + rowYInGrid
   const spaceBelow = viewportRows - rowYInGrid - 1
-  const dropsDown = popupHeight <= spaceBelow
-  const top = dropsDown ? cellTop + 1 : Math.max(0, cellTop - popupHeight)
+  const visibleLines = continuation.slice(0, Math.max(0, spaceBelow))
+  if (visibleLines.length === 0) return null
+  let leftOffset = ID_COL_WIDTH
+  for (let i = 0; i < cursor.col; i++) leftOffset += colWidths[i] ?? MIN_COL_WIDTH
   return React.createElement(
     Box,
     {
       position: 'absolute',
       marginLeft: leftOffset,
-      marginTop: top,
-      width: popupWidth,
-      borderStyle: 'round',
-      borderColor: 'gray',
-      paddingX: 1,
+      marginTop: cellTop + 1,
       flexDirection: 'column',
     },
-    ...lines.map((ln, i) =>
-      React.createElement(Text, { key: i, wrap: 'truncate' }, ln === '' ? ' ' : ln),
+    ...visibleLines.map((ln, i) =>
+      React.createElement(
+        Box,
+        {
+          key: i,
+          width: cellWidth,
+          paddingX: ROW_PADDING,
+          borderStyle: 'single',
+          borderRight: true,
+          borderTop: false,
+          borderBottom: false,
+          borderLeft: false,
+        },
+        React.createElement(Text, { color: 'cyan' }, ln === '' ? ' ' : ln),
+      ),
     ),
   )
 }
@@ -622,6 +635,7 @@ function renderRow(
   fields: Field[],
   widths: number[],
   active: boolean,
+  activeCol: number,
   edit: EditState | null,
   select: SelectState | null,
 ): JSX.Element {
@@ -656,9 +670,10 @@ function renderRow(
         edit,
         Boolean(selectHere),
         select,
-        // Inner width = column width minus the box's horizontal padding,
-        // so formatCell truncates against the actual visible character count.
-        Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING),
+        // Inner width = column width minus the box's horizontal padding
+        // AND its right border — that's the budget formatCell can paint.
+        Math.max(1, (widths[i] ?? MIN_COL_WIDTH) - 2 * ROW_PADDING - 1),
+        isActive && i === activeCol,
       )
       return React.createElement(
         Box,
@@ -687,6 +702,7 @@ function renderCell(
   selectOpen: boolean,
   select: SelectState | null,
   width: number,
+  isFocused: boolean,
 ): JSX.Element {
   const colActive = isEditing || selectOpen
   const inverse = rowActive && !colActive
@@ -713,7 +729,7 @@ function renderCell(
       cursor: select.cursor,
     })
   }
-  const text = formatCell(field, value, width)
+  const text = formatCell(field, value, width, isFocused)
   if (field.type === 'checkbox') {
     const checked = value === true
     return React.createElement(CheckboxEditor, { value: checked, active: inverse })
@@ -721,17 +737,21 @@ function renderCell(
   return React.createElement(Text, { inverse, color: rowActive ? 'cyan' : undefined }, text)
 }
 
-function formatCell(field: Field, value: unknown, width: number): string {
+function formatCell(field: Field, value: unknown, width: number, isFocused = false): string {
   if (value === null || value === undefined) return '∅'
   if (field.type === 'select') {
     const opts = (field.options as SelectOptions).options as { id: string; name: string }[]
     const o = opts.find((x) => x.id === value)
-    if (o) return truncate(o.name, width)
+    if (o) return truncate(o.name, width, isFocused)
   }
-  return truncate(String(value), width)
+  return truncate(String(value), width, isFocused)
 }
 
-function truncate(s: string, width: number): string {
+function truncate(s: string, width: number, isFocused = false): string {
   if (s.length <= width) return s
+  // On the focused cell we drop the "…" so the continuation overlay can
+  // pick up exactly at character `width` — the cell + continuation read
+  // as a single tall paragraph.
+  if (isFocused) return s.slice(0, width)
   return s.slice(0, Math.max(0, width - 1)) + '…'
 }

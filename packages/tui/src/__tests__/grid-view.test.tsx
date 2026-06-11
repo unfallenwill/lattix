@@ -455,20 +455,35 @@ describe('GridView', () => {
       }),
     )
     await tick()
-    // The cell is too narrow for the full string; the popup overlay must
-    // render the untruncated text in a bordered box just below the cell.
+    // The cell's first line is painted in-place; the rest of the string
+    // spills into a continuation overlay below in the same column. We
+    // don't try to assert visual reflow order (the popup is absolutely
+    // positioned and overlays an unrelated row), just that every wrapped
+    // 11-char chunk of the long text is somewhere in the frame.
     const frame = api.lastFrame() ?? ''
-    expect(frame).toContain(longText)
-    expect(frame).toMatch(/[╭╮╯╰]/) // popup border present
+    const plain = stripAnsi(frame)
+    // The grid lays cells at 16 cols outer width here (5 fields, 100 col
+    // stdout, see colWidths()), minus 1 right border + 2 paddingX = 13
+    // chars of paintable text per cell. The popup wraps to the same budget.
+    const innerWidth = 13
+    for (let i = 0; i < longText.length; i += innerWidth) {
+      expect(plain).toContain(longText.slice(i, i + innerWidth))
+    }
+    expect(frame).not.toMatch(/[╭╮╯╰]/)
     api.unmount()
   })
 
-  it('overflow popup: short content does not trigger the preview', async () => {
+  it('overflow popup: short content does not draw any continuation', async () => {
     const { api } = await mountGrid()
     const frame = api.lastFrame() ?? ''
-    // Cursor is on (0, 0) = "First" which fits — popup would be drawn with
-    // a rounded border (╭/╮). No popup => no rounded corners on screen.
-    expect(frame).not.toMatch(/[╭╮]/)
+    // No popup of any kind for short content. Calendar / select aren't
+    // open either, so the screen has no rounded-border characters.
+    expect(frame).not.toMatch(/[╭╮╯╰]/)
     api.unmount()
   })
 })
+
+// Tiny ANSI stripper for assertions that don't care about color codes.
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*m/g, '')
+}
