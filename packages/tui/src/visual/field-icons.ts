@@ -27,7 +27,11 @@ export const ICON_SLOT = 2
 const EMOJI: Record<FieldType, string> = {
   text: '📝',
   number: '🔢',
-  select: '🏷',
+  // Bookmark, not tag — 🏷 (U+1F3F7) measures width 1 under string-width
+  // but renders as 2 columns on most modern terminals, which would push
+  // every column to its right one cell over. 🔖 is unambiguous: both
+  // string-width and the terminal agree on width 2.
+  select: '🔖',
   checkbox: '✅',
   date: '📅',
 }

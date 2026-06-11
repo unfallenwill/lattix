@@ -1,10 +1,15 @@
 /**
- * Field-icon registry tests. Two contracts to lock down:
+ * Field-icon registry tests. Three contracts to lock down:
  *
  *  1. Every returned icon measures exactly ICON_SLOT (=2) terminal columns
  *     under `string-width`. This is what keeps the column header layout
  *     stable across terminals — emoji or ASCII fallback, doesn't matter.
- *  2. The environment detector picks the right set for the terminals
+ *  2. The RAW emoji glyph (without our padding) is itself already 2 cols
+ *     wide. If the raw is 1 and we pad with a space, string-width is
+ *     happy but some terminals render the raw as 2 anyway → table gets
+ *     shifted right by 1 cell per icon. Glyph picks that fail this test
+ *     must be replaced, not padded around. (Regression: 🏷 U+1F3F7.)
+ *  3. The environment detector picks the right set for the terminals
  *     we've decided to opt into / out of.
  */
 import stringWidth from 'string-width'
@@ -18,6 +23,17 @@ describe('fieldIcon', () => {
     for (const t of TYPES) {
       const icon = fieldIcon(t, 'emoji')
       expect(stringWidth(icon)).toBe(ICON_SLOT)
+    }
+  })
+
+  it('emoji set: every RAW glyph is already 2 cols (no width-1 emoji)', () => {
+    // The padding fallback in fieldIcon() is a defence-in-depth measure,
+    // not a license to pick width-1 emoji. Width-1 emoji that render as
+    // 2 on real terminals are the worst case: string-width thinks 1+pad,
+    // terminal paints 2+pad → 3 columns → table shifts.
+    for (const t of TYPES) {
+      const raw = fieldIcon(t, 'emoji').replace(/ +$/, '')
+      expect(stringWidth(raw)).toBe(2)
     }
   })
 
