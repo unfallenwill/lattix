@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text, useStdout } from 'ink'
 import type { LattixConnection, ConnectionState } from '@lattix/client'
 import type { Table } from '@lattix/shared'
 import { DataStore } from './store/data-store.js'
@@ -65,6 +65,11 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
 
   const currentTableId = useDataStore(store, (s: DataStore) => s.getCurrentTableId())
   const tables = useDataStore(store, (s: DataStore) => s.getTables())
+  // Pin the root box to the terminal height so the GridView's flexGrow
+  // actually fills the alt-screen viewport. Without an explicit height ink
+  // would auto-size the root to its content.
+  const { stdout } = useStdout()
+  const rows = stdout.rows
 
   const hints =
     mode === 'editing'
@@ -75,7 +80,7 @@ export function App(props: { conn: LattixConnection }): JSX.Element {
 
   return React.createElement(
     Box,
-    { flexDirection: 'column', height: '100%' },
+    { flexDirection: 'column', height: rows },
     React.createElement(GridView, {
       store,
       mode,

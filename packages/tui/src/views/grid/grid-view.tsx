@@ -188,7 +188,7 @@ export function GridView(props: GridViewProps): JSX.Element {
         commitEdit()
         return
       }
-      if (key.backspace) {
+      if (key.backspace || key.delete) {
         setEdit({ ...edit, buf: edit.buf.slice(0, -1) })
         return
       }
@@ -307,7 +307,7 @@ export function GridView(props: GridViewProps): JSX.Element {
 
   return React.createElement(
     Box,
-    { flexDirection: 'column' },
+    { flexDirection: 'column', flexGrow: 1, minHeight: headerHeight + 3 + footerHeight },
     renderHeader(fields, colWidths, cursor.col, sortKey, sortDir),
     ...visible.map((rec, i) =>
       renderRow(rec, fields, colWidths, cursor.row === start + i, edit, select),
@@ -319,6 +319,55 @@ export function GridView(props: GridViewProps): JSX.Element {
         Text,
         { dimColor: true },
         `Showing ${start + 1}-${end} of ${records.length}`,
+      ),
+    ),
+    select ? renderSelectPopup(select, cursor, start, colWidths, viewportRows) : null,
+  )
+}
+
+// Floating dropdown — rendered with absolute positioning so it sits on top
+// of subsequent rows instead of pushing them down. Drops below the cell when
+// there's room; flips up when below would overflow into the status bar.
+function renderSelectPopup(
+  select: SelectState,
+  cursor: Cursor,
+  start: number,
+  colWidths: number[],
+  viewportRows: number,
+): JSX.Element {
+  const headerHeight = 1
+  // Left offset = id column + widths of preceding data columns.
+  let left = ID_COL_WIDTH
+  for (let i = 0; i < cursor.col; i++) left += colWidths[i] ?? MIN_COL_WIDTH
+  const cellWidth = colWidths[cursor.col] ?? MIN_COL_WIDTH
+  const longest = select.options.reduce((m, o) => Math.max(m, o.name.length), 0)
+  const popupWidth = Math.max(cellWidth, longest + 4)
+  // Popup is options.length tall + 2 lines of border.
+  const popupHeight = select.options.length + 2
+  // y of the cursor row inside the grid (0-based, after header).
+  const rowYInGrid = cursor.row - start
+  const cellTop = headerHeight + rowYInGrid
+  // Room below the cell: viewport minus cells consumed up to & including cursor.
+  const spaceBelow = viewportRows - rowYInGrid - 1
+  const dropsDown = popupHeight <= spaceBelow
+  const top = dropsDown
+    ? cellTop + 1 // just under the cell
+    : Math.max(0, cellTop - popupHeight) // flip up, anchor above the cell
+  return React.createElement(
+    Box,
+    {
+      position: 'absolute',
+      marginLeft: left,
+      marginTop: top,
+      width: popupWidth,
+      borderStyle: 'round',
+      flexDirection: 'column',
+    },
+    ...select.options.map((o, i) =>
+      React.createElement(
+        Text,
+        { key: o.id, inverse: i === select.cursor, color: o.color },
+        '  ' + o.name,
       ),
     ),
   )

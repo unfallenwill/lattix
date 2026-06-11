@@ -20,6 +20,7 @@ export interface DispatcherKey {
   leftArrow: boolean
   rightArrow: boolean
   backspace: boolean
+  delete: boolean
 }
 
 // Routes raw stdin input to mode-specific handlers. The Ink `useInput`
@@ -37,6 +38,10 @@ export function useInputDispatcher(opts: DispatcherOptions): void {
       leftArrow: key.leftArrow,
       rightArrow: key.rightArrow,
       backspace: key.backspace,
+      // Most terminals send DEL (0x7f) on the Backspace key; Ink classifies
+      // that as `delete`. Surface it here so callers can treat both as the
+      // same "erase one char to the left" intent.
+      delete: (key as { delete?: boolean }).delete ?? false,
     }
     switch (opts.mode) {
       case 'navigation':

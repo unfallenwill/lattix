@@ -85,9 +85,29 @@ export async function runTui(argv: string[], io: IO = defaultIO): Promise<number
     io.stderr.write(`lattix: ${(err as Error).message}\n`)
     return 1
   }
-  const { waitUntilExit } = render(React.createElement(App, { conn }))
-  await waitUntilExit()
-  await conn.close().catch(() => undefined)
+  // Enter the terminal's alternate screen buffer so the TUI takes the whole
+  // viewport and the user's scrollback is preserved on exit. The matching
+  // leave-sequence is wired to several termination paths below — if any one
+  // of them fires we still need to restore the main buffer.
+  const isTty = (io.stdout as NodeJS.WriteStream).isTTY === true
+  let restored = false
+  const restore = (): void => {
+    if (restored || !isTty) return
+    restored = true
+    io.stdout.write('\x1b[?1049l\x1b[?25h')
+  }
+  if (isTty) io.stdout.write('\x1b[?1049h\x1b[2J\x1b[H')
+  process.on('exit', restore)
+  process.on('SIGINT', restore)
+  process.on('SIGTERM', restore)
+  process.on('uncaughtException', restore)
+  try {
+    const { waitUntilExit } = render(React.createElement(App, { conn }))
+    await waitUntilExit()
+  } finally {
+    restore()
+    await conn.close().catch(() => undefined)
+  }
   return 0
 }
 
