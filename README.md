@@ -1,8 +1,9 @@
 Development
 -----------
 
-    npm run build      # Build all packages
-    npm test           # Run all tests
+    npm run build      # Build all packages (tsdown)
+    npm test           # Run all tests (vitest)
+    npm run coverage   # Test coverage report (vitest + v8)
     npm run typecheck  # tsc --noEmit across workspaces
     npm run lint       # eslint
     npm run format     # prettier --write

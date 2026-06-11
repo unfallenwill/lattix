@@ -12,9 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "jest --config ../../jest.config.js --passWithNoTests"
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lattix/protocol": "0.1.0",

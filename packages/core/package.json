@@ -15,11 +15,10 @@
     "lattix-core": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "start": "node ./dist/cli.js",
-    "dev": "tsx ./src/cli.ts",
-    "test": "jest --config ../../jest.config.js --passWithNoTests"
+    "dev": "tsx ./src/cli.ts"
   },
   "dependencies": {
     "@lattix/protocol": "0.1.0",
