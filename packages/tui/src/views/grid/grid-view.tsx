@@ -8,6 +8,15 @@ import { TextEditor } from '../../editors/text-editor.jsx'
 import { CheckboxEditor } from '../../editors/checkbox-editor.jsx'
 import { SelectEditor } from '../../editors/select-editor.jsx'
 import { DateEditor } from '../../editors/date-editor.jsx'
+import {
+  Calendar,
+  CALENDAR_HEIGHT,
+  CALENDAR_WIDTH,
+  addDays,
+  addMonths,
+  formatISODate,
+  parseISODate,
+} from '../../editors/calendar.jsx'
 import type { SelectOptions } from '@lattix/protocol'
 
 const ROW_PADDING = 1
@@ -34,6 +43,10 @@ interface EditState {
   field: Field
   recordId: string
   buf: string
+  // Only used when field.type === 'date': the day the calendar cursor is
+  // sitting on (controlled by arrow keys; also auto-snaps when buf is a
+  // complete YYYY-MM-DD).
+  calFocus?: Date
 }
 
 interface SelectState {
@@ -183,6 +196,64 @@ export function GridView(props: GridViewProps): JSX.Element {
         onChangeMode('navigation')
         return
       }
+      // Date cells get the calendar treatment: arrow keys move the focused
+      // day, PageUp/Down flip month (Shift = year), Enter commits the
+      // focused day. Typing into buf still works; when buf parses as a
+      // valid YYYY-MM-DD the calendar auto-snaps to it.
+      if (edit.field.type === 'date') {
+        const focus = edit.calFocus ?? stripTime(new Date())
+        if (key.return) {
+          const commitDate = parseISODate(edit.buf) ?? focus
+          setEdit({ ...edit, buf: formatISODate(commitDate), calFocus: commitDate })
+          queueMicrotask(commitEdit)
+          return
+        }
+        if (key.leftArrow) {
+          const next = addDays(focus, -1)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.rightArrow) {
+          const next = addDays(focus, 1)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.upArrow) {
+          const next = addDays(focus, -7)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.downArrow) {
+          const next = addDays(focus, 7)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.pageUp) {
+          const next = addMonths(focus, key.shift ? -12 : -1)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.pageDown) {
+          const next = addMonths(focus, key.shift ? 12 : 1)
+          setEdit({ ...edit, buf: formatISODate(next), calFocus: next })
+          return
+        }
+        if (key.backspace || key.delete) {
+          const nextBuf = edit.buf.slice(0, -1)
+          setEdit({ ...edit, buf: nextBuf, calFocus: parseISODate(nextBuf) ?? edit.calFocus })
+          return
+        }
+        if (key.tab) {
+          commitEdit()
+          moveRight()
+          return
+        }
+        if (input && !input.startsWith('\u001b')) {
+          const nextBuf = edit.buf + input
+          setEdit({ ...edit, buf: nextBuf, calFocus: parseISODate(nextBuf) ?? edit.calFocus })
+        }
+        return
+      }
       if (key.return) {
         commitEdit()
         return
@@ -239,7 +310,9 @@ export function GridView(props: GridViewProps): JSX.Element {
     }
     const current = record.data[field.id]
     const buf = current == null ? '' : typeof current === 'string' ? current : String(current)
-    setEdit({ field, recordId: record.id, buf })
+    const calFocus =
+      field.type === 'date' ? (parseISODate(buf) ?? stripTime(new Date())) : undefined
+    setEdit({ field, recordId: record.id, buf, calFocus })
     onChangeMode('editing')
   }
 
@@ -321,6 +394,51 @@ export function GridView(props: GridViewProps): JSX.Element {
       ),
     ),
     select ? renderSelectPopup(select, cursor, start, colWidths, viewportRows) : null,
+    edit?.field.type === 'date'
+      ? renderCalendarPopup(edit, cursor, start, colWidths, viewportRows)
+      : null,
+  )
+}
+
+// --- helpers -------------------------------------------------------------
+
+function stripTime(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+// Floating calendar — same positioning model as the select popup, sized
+// from the Calendar component's exported constants. Flips upward when the
+// row is too close to the status bar.
+function renderCalendarPopup(
+  edit: EditState,
+  cursor: Cursor,
+  start: number,
+  colWidths: number[],
+  viewportRows: number,
+): JSX.Element {
+  const headerHeight = 1
+  let left = ID_COL_WIDTH
+  for (let i = 0; i < cursor.col; i++) left += colWidths[i] ?? MIN_COL_WIDTH
+  const rowYInGrid = cursor.row - start
+  const cellTop = headerHeight + rowYInGrid
+  const spaceBelow = viewportRows - rowYInGrid - 1
+  const dropsDown = CALENDAR_HEIGHT <= spaceBelow
+  const top = dropsDown ? cellTop + 1 : Math.max(0, cellTop - CALENDAR_HEIGHT)
+  const focus = edit.calFocus ?? stripTime(new Date())
+  const selected = parseISODate(edit.buf)
+  return React.createElement(
+    Box,
+    {
+      position: 'absolute',
+      marginLeft: left,
+      marginTop: top,
+      width: CALENDAR_WIDTH,
+    },
+    React.createElement(Calendar, {
+      visibleMonth: focus,
+      focused: focus,
+      selected,
+    }),
   )
 }
 

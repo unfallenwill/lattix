@@ -19,6 +19,8 @@ export interface DispatcherKey {
   downArrow: boolean
   leftArrow: boolean
   rightArrow: boolean
+  pageUp: boolean
+  pageDown: boolean
   backspace: boolean
   delete: boolean
 }
@@ -37,6 +39,8 @@ export function useInputDispatcher(opts: DispatcherOptions): void {
       downArrow: key.downArrow,
       leftArrow: key.leftArrow,
       rightArrow: key.rightArrow,
+      pageUp: (key as { pageUp?: boolean }).pageUp ?? false,
+      pageDown: (key as { pageDown?: boolean }).pageDown ?? false,
       backspace: key.backspace,
       // Most terminals send DEL (0x7f) on the Backspace key; Ink classifies
       // that as `delete`. Surface it here so callers can treat both as the

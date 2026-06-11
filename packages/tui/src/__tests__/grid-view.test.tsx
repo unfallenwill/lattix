@@ -333,4 +333,89 @@ describe('GridView', () => {
     expect(upd?.data['fNum']).toBe(19)
     api.unmount()
   })
+
+  it('date-editing: arrow keys move the calendar focus + Enter commits', async () => {
+    const fake = new FakeConn()
+    const store = new DataStore(fake as unknown as LattixConnection)
+    await store.loadTables()
+
+    function Host(): JSX.Element {
+      const [mode, setMode] = React.useState<'navigation' | 'editing' | 'dialog'>('navigation')
+      return React.createElement(GridView, {
+        store,
+        mode,
+        onModeChange: setMode,
+        onChangeMode: setMode,
+        onNewRecord: () => undefined,
+        onDeleteRecord: () => undefined,
+        onStatus: () => undefined,
+      })
+    }
+
+    const api = render(React.createElement(Host))
+    await tick()
+    // navigate to date column (col 4 = Due, current = 2026-01-01)
+    for (let i = 0; i < 4; i++) {
+      api.stdin.write('l')
+      await tick(5)
+    }
+    api.stdin.write('i') // start editing — calendar opens on 2026-01-01
+    await tick(10)
+    // Right arrow → 2026-01-02
+    api.stdin.write('[C')
+    await tick(10)
+    // Frame should show the new buf
+    expect(api.lastFrame() ?? '').toContain('2026-01-02')
+    api.stdin.write('\r') // commit
+    await tick(20)
+    const upd = fake.updates.find((u) => u.recordId === 'r1' && 'fDate' in u.data)
+    expect(upd?.data['fDate']).toBe('2026-01-02')
+    api.unmount()
+  })
+
+  it('date-editing: typing a complete ISO date snaps the calendar focus', async () => {
+    const fake = new FakeConn()
+    const store = new DataStore(fake as unknown as LattixConnection)
+    await store.loadTables()
+
+    function Host(): JSX.Element {
+      const [mode, setMode] = React.useState<'navigation' | 'editing' | 'dialog'>('navigation')
+      return React.createElement(GridView, {
+        store,
+        mode,
+        onModeChange: setMode,
+        onChangeMode: setMode,
+        onNewRecord: () => undefined,
+        onDeleteRecord: () => undefined,
+        onStatus: () => undefined,
+      })
+    }
+
+    const api = render(React.createElement(Host))
+    await tick()
+    for (let i = 0; i < 4; i++) {
+      api.stdin.write('l')
+      await tick(5)
+    }
+    api.stdin.write('i')
+    await tick(10)
+    // wipe existing buf (2026-01-01 = 10 chars) then type a new date
+    for (let i = 0; i < 12; i++) {
+      api.stdin.write('') // backspace (DEL)
+      await tick(2)
+    }
+    for (const ch of '2027-03-15') {
+      api.stdin.write(ch)
+      await tick(2)
+    }
+    // Frame must contain the typed buf and the calendar header for that month
+    const frame = api.lastFrame() ?? ''
+    expect(frame).toContain('2027-03-15')
+    expect(frame).toContain('2027-03')
+    api.stdin.write('\r')
+    await tick(20)
+    const upd = fake.updates.find((u) => u.recordId === 'r1' && 'fDate' in u.data)
+    expect(upd?.data['fDate']).toBe('2027-03-15')
+    api.unmount()
+  })
 })
