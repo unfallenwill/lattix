@@ -1,3 +1,5 @@
 export * from './errors.js'
 export * from './frames.js'
 export * from './methods.js'
+export * from './method-def.js'
+export * from './methods/index.js'
