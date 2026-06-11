@@ -23,7 +23,7 @@ interface ParsedArgs {
   }
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = {
     command: 'help',
     options: { foreground: true },
@@ -43,8 +43,22 @@ function parseArgs(argv: string[]): ParsedArgs {
   return out
 }
 
-function printHelp(): void {
-  process.stdout.write(`lattix-core — local Core process for the lattix engine
+interface IO {
+  stdout: NodeJS.WritableStream
+  stderr: NodeJS.WritableStream
+}
+
+const defaultIO: IO = { stdout: process.stdout, stderr: process.stderr }
+
+export interface RunningHandle {
+  /** ws:// url the server is listening on (after start) */
+  url: string
+  /** Tear down server + storage + pid file. */
+  shutdown(): Promise<void>
+}
+
+export function printHelp(io: IO = defaultIO): void {
+  io.stdout.write(`lattix-core — local Core process for the lattix engine
 
 Usage:
   lattix-core start [--port N] [--host ADDR] [--data-dir DIR]
@@ -59,25 +73,38 @@ Environment:
 `)
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2))
+/** Entry point — returns an exit code instead of calling process.exit, so tests can drive it. */
+export async function main(argv: string[], io: IO = defaultIO): Promise<number> {
+  const args = parseArgs(argv)
   switch (args.command) {
     case 'help':
-      printHelp()
-      return
+      printHelp(io)
+      return 0
     case 'status':
-      await runStatus()
-      return
+      await runStatus(io)
+      return 0
     case 'stop':
-      await runStop()
-      return
-    case 'start':
-      await runStart(args.options)
-      return
+      await runStop(io)
+      return 0
+    case 'start': {
+      // In tests we usually don't want to install signal handlers; callers
+      // can use runStart() directly to get a handle they can shut down.
+      await runStart(args.options, io)
+      return 0
+    }
   }
 }
 
-async function runStart(opts: ParsedArgs['options']): Promise<void> {
+/**
+ * Boot the server. When `attachSignals` is true (the default) SIGINT/SIGTERM
+ * trigger graceful shutdown via process.exit; tests should pass false and
+ * call `handle.shutdown()` themselves.
+ */
+export async function runStart(
+  opts: ParsedArgs['options'],
+  io: IO = defaultIO,
+  attachSignals = true,
+): Promise<RunningHandle> {
   const cfg = loadConfig({
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.host !== undefined ? { host: opts.host } : {}),
@@ -108,51 +135,58 @@ async function runStart(opts: ParsedArgs['options']): Promise<void> {
     serverVersion: SERVER_VERSION,
   })
   const running = await server.start()
-  process.stdout.write(`lattix-core listening on ${running.url}\n`)
-  process.stdout.write(`data dir: ${cfg.dataDir}\n`)
+  io.stdout.write(`lattix-core listening on ${running.url}\n`)
+  io.stdout.write(`data dir: ${cfg.dataDir}\n`)
 
-  const shutdown = async (sig: NodeJS.Signals): Promise<void> => {
-    process.stdout.write(`\nReceived ${sig}, shutting down...\n`)
+  const shutdown = async (): Promise<void> => {
     await running.close()
     storage.close()
     clearPid(cfg)
-    process.exit(0)
   }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+
+  if (attachSignals) {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      io.stdout.write(`\nReceived ${sig}, shutting down...\n`)
+      void shutdown().finally(() => process.exit(0))
+    }
+    process.on('SIGINT', onSignal)
+    process.on('SIGTERM', onSignal)
+  }
+
+  return { url: running.url, shutdown }
 }
 
-async function runStatus(): Promise<void> {
+export async function runStatus(io: IO = defaultIO): Promise<void> {
   const cfg = loadConfig()
   if (!fs.existsSync(cfg.pidFile)) {
-    process.stdout.write('Core is not running (no pid file).\n')
+    io.stdout.write('Core is not running (no pid file).\n')
     return
   }
   const pid = Number(fs.readFileSync(cfg.pidFile, 'utf8').trim())
   if (!Number.isFinite(pid)) {
-    process.stdout.write(`Invalid pid file at ${cfg.pidFile}\n`)
+    io.stdout.write(`Invalid pid file at ${cfg.pidFile}\n`)
     return
   }
   try {
     process.kill(pid, 0)
-    process.stdout.write(`Core is running (pid=${pid}, port=${cfg.port}).\n`)
+    io.stdout.write(`Core is running (pid=${pid}, port=${cfg.port}).\n`)
   } catch {
-    process.stdout.write(`Stale pid file (pid=${pid} not alive).\n`)
+    io.stdout.write(`Stale pid file (pid=${pid} not alive).\n`)
   }
 }
 
-async function runStop(): Promise<void> {
+export async function runStop(io: IO = defaultIO): Promise<void> {
   const cfg = loadConfig()
   if (!fs.existsSync(cfg.pidFile)) {
-    process.stdout.write('No pid file; nothing to stop.\n')
+    io.stdout.write('No pid file; nothing to stop.\n')
     return
   }
   const pid = Number(fs.readFileSync(cfg.pidFile, 'utf8').trim())
   try {
     process.kill(pid, 'SIGTERM')
-    process.stdout.write(`Sent SIGTERM to pid=${pid}.\n`)
+    io.stdout.write(`Sent SIGTERM to pid=${pid}.\n`)
   } catch (err) {
-    process.stdout.write(`Failed to stop pid=${pid}: ${(err as Error).message}\n`)
+    io.stdout.write(`Failed to stop pid=${pid}: ${(err as Error).message}\n`)
   }
 }
 
@@ -168,7 +202,15 @@ function clearPid(cfg: CoreConfig): void {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`lattix-core: ${(err as Error).stack ?? String(err)}\n`)
-  process.exit(1)
-})
+// When invoked as a script (not imported), parse argv and exit on completion.
+// `import.meta.url` equals the resolved entry URL only at top-level CLI use.
+const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`
+if (isMain) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      process.stderr.write(`lattix-core: ${(err as Error).stack ?? String(err)}\n`)
+      process.exit(1)
+    },
+  )
+}

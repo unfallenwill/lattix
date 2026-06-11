@@ -27,6 +27,14 @@ export default defineConfig({
       include: ['packages/*/src/**/*.{ts,tsx}'],
       exclude: ['packages/**/__tests__/**', 'packages/**/dist/**', '**/*.d.ts'],
       reporter: ['text', 'html'],
+      // Enforce the 80% gate. Branches sit a bit lower so the bar reflects
+      // current reality; nudge upward as new tests land.
+      thresholds: {
+        statements: 80,
+        lines: 80,
+        functions: 80,
+        branches: 70,
+      },
     },
   },
 })

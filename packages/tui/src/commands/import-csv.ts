@@ -1,5 +1,5 @@
 import * as fs from 'node:fs'
-import type { ConnectionState } from '@lattix/client'
+import type { LattixConnection, ConnectionState } from '@lattix/client'
 import type { Table, Field } from '@lattix/shared'
 import { connectToCore } from '../connection/connect.js'
 import { defaultCoreUrl } from '../connection/paths.js'
@@ -17,6 +17,8 @@ export interface ImportOptions {
   file: string
   autoCreate?: boolean
   batchSize?: number
+  /** Test seam: inject a connection factory instead of calling connectToCore. */
+  connect?: (url: string) => Promise<LattixConnection>
 }
 
 export interface ImportResult {
@@ -29,7 +31,8 @@ const DEFAULT_BATCH = 200
 
 // Placeholder; see subsequent patches.
 export async function runImport(opts: ImportOptions): Promise<ImportResult> {
-  const conn = await connectToCore({ url: opts.url ?? defaultCoreUrl() })
+  const url = opts.url ?? defaultCoreUrl()
+  const conn = opts.connect ? await opts.connect(url) : await connectToCore({ url })
   try {
     const text = fs.readFileSync(opts.file, 'utf8')
     const rows = parseCsv(text)

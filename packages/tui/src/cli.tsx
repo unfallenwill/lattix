@@ -7,7 +7,7 @@ import { defaultCoreUrl } from './connection/paths.js'
 import { type LattixConnection } from '@lattix/client'
 import { runImport } from './commands/import-csv.js'
 
-const HELP = `lattix — local-first multi-dimensional table TUI client
+export const HELP = `lattix — local-first multi-dimensional table TUI client
 
 Usage:
   lattix [--url ws://host:port] [--no-autostart]
@@ -19,40 +19,37 @@ If the Core is not running, lattix will spawn it automatically (unless
 --no-autostart is passed).
 `
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2)
-  if (args[0] === 'help' || args[0] === '-h' || args[0] === '--help') {
-    process.stdout.write(HELP)
-    return
-  }
-  if (args[0] === 'record' && args[1] === 'import') {
-    await runRecordImport(args.slice(2))
-    return
-  }
-  await runTui(args)
+interface IO {
+  stdout: NodeJS.WritableStream
+  stderr: NodeJS.WritableStream
 }
 
-async function runTui(args: string[]): Promise<void> {
+const defaultIO: IO = { stdout: process.stdout, stderr: process.stderr }
+
+export interface TuiArgs {
+  url: string
+  noAutoStart: boolean
+}
+
+export function parseTuiArgs(argv: string[]): TuiArgs {
   let url = defaultCoreUrl()
   let noAutoStart = false
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]
-    if (a === '--url') url = String(args[++i])
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--url') url = String(argv[++i])
     else if (a === '--no-autostart') noAutoStart = true
   }
-  let conn: LattixConnection
-  try {
-    conn = await connectToCore({ url, autoStart: !noAutoStart })
-  } catch (err) {
-    process.stderr.write(`lattix: ${(err as Error).message}\n`)
-    process.exit(1)
-  }
-  const { waitUntilExit } = render(React.createElement(App, { conn }))
-  await waitUntilExit()
-  await conn.close().catch(() => undefined)
+  return { url, noAutoStart }
 }
 
-async function runRecordImport(argv: string[]): Promise<void> {
+export interface RecordImportArgs {
+  tableName?: string
+  file: string
+  autoCreate: boolean
+  url?: string
+}
+
+export function parseRecordImportArgs(argv: string[]): RecordImportArgs {
   let tableName: string | undefined
   let file = ''
   let autoCreate = false
@@ -64,26 +61,66 @@ async function runRecordImport(argv: string[]): Promise<void> {
     else if (a === '--auto-create') autoCreate = true
     else if (a === '--url') url = String(argv[++i])
   }
+  return { tableName, file, autoCreate, url }
+}
+
+/** Returns a process exit code instead of calling process.exit (test seam). */
+export async function main(argv: string[], io: IO = defaultIO): Promise<number> {
+  if (argv[0] === 'help' || argv[0] === '-h' || argv[0] === '--help') {
+    io.stdout.write(HELP)
+    return 0
+  }
+  if (argv[0] === 'record' && argv[1] === 'import') {
+    return await runRecordImport(argv.slice(2), io)
+  }
+  return await runTui(argv, io)
+}
+
+export async function runTui(argv: string[], io: IO = defaultIO): Promise<number> {
+  const { url, noAutoStart } = parseTuiArgs(argv)
+  let conn: LattixConnection
+  try {
+    conn = await connectToCore({ url, autoStart: !noAutoStart })
+  } catch (err) {
+    io.stderr.write(`lattix: ${(err as Error).message}\n`)
+    return 1
+  }
+  const { waitUntilExit } = render(React.createElement(App, { conn }))
+  await waitUntilExit()
+  await conn.close().catch(() => undefined)
+  return 0
+}
+
+export async function runRecordImport(argv: string[], io: IO = defaultIO): Promise<number> {
+  const { tableName, file, autoCreate, url } = parseRecordImportArgs(argv)
   if (!file) {
-    process.stderr.write('lattix record import: --file is required\n')
-    process.exit(2)
+    io.stderr.write('lattix record import: --file is required\n')
+    return 2
   }
   if (!tableName && !autoCreate) {
-    process.stderr.write('lattix record import: --table <name> or --auto-create is required\n')
-    process.exit(2)
+    io.stderr.write('lattix record import: --table <name> or --auto-create is required\n')
+    return 2
   }
   try {
     const res = await runImport({ file, tableName, autoCreate, url })
-    process.stdout.write(
+    io.stdout.write(
       `imported ${res.imported} row(s) into "${res.table.name}" (${res.errors} error(s))\n`,
     )
+    return 0
   } catch (err) {
-    process.stderr.write(`lattix record import: ${(err as Error).message}\n`)
-    process.exit(1)
+    io.stderr.write(`lattix record import: ${(err as Error).message}\n`)
+    return 1
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`lattix: ${(err as Error).stack ?? String(err)}\n`)
-  process.exit(1)
-})
+// Only run when invoked as a script (not imported).
+const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`
+if (isMain) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      process.stderr.write(`lattix: ${(err as Error).stack ?? String(err)}\n`)
+      process.exit(1)
+    },
+  )
+}
