@@ -13,15 +13,36 @@ const DEFAULT_RECONNECT = {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000
 
+/**
+ * If a caller makes a request while the socket is between connections,
+ * we hold it for up to this many ms waiting for `connected` before
+ * rejecting. Keeps a fast user keystroke from blowing up just because
+ * the socket flapped — matches the UX guarantees you'd want of any
+ * local-first client SDK.
+ */
+const DEFAULT_REQUEST_QUEUE_WINDOW_MS = 500
+
 export interface LattixConnectionOptions {
   url: string
   clientId?: string
   clientVersion?: string
   reconnect?: boolean
   reconnectOpts?: Partial<typeof DEFAULT_RECONNECT>
+  /** Override the short-window queue for `request()` made while disconnected. */
+  requestQueueWindowMs?: number
 }
 
 type StateListener = (state: ConnectionState) => void
+
+interface QueuedRequest {
+  method: string
+  params: unknown
+  options: RequestOptions | undefined
+  resolve: (v: unknown) => void
+  reject: (err: unknown) => void
+  expiresAt: number
+  timer: NodeJS.Timeout
+}
 
 export class LattixConnection {
   private ws: WebSocket | null = null
@@ -36,6 +57,14 @@ export class LattixConnection {
   private readonly clientVersion: string
   private readonly shouldReconnect: boolean
   private readonly reconnectOpts: typeof DEFAULT_RECONNECT
+  private readonly requestQueueWindowMs: number
+  /**
+   * Requests made while the socket is between connections. Drained on the
+   * next `connected` state. Each entry has its own timer that rejects if
+   * we don't reach `connected` in time, so the queue can never grow without
+   * bound and a slow reconnect doesn't keep callers hanging.
+   */
+  private readonly queue: QueuedRequest[] = []
 
   constructor(opts: LattixConnectionOptions) {
     this.currentUrl = opts.url
@@ -43,6 +72,7 @@ export class LattixConnection {
     this.clientVersion = opts.clientVersion ?? '0.1.0'
     this.shouldReconnect = opts.reconnect ?? true
     this.reconnectOpts = { ...DEFAULT_RECONNECT, ...(opts.reconnectOpts ?? {}) }
+    this.requestQueueWindowMs = opts.requestQueueWindowMs ?? DEFAULT_REQUEST_QUEUE_WINDOW_MS
   }
 
   // -- lifecycle --------------------------------------------------------------
@@ -58,6 +88,8 @@ export class LattixConnection {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    // Reject anything still waiting for a reconnect — close() means "stop".
+    this.drainQueue(toProtocolError(new Error('connection closed')))
     const ws = this.ws
     this.ws = null
     if (ws?.readyState === WebSocket.OPEN) {
@@ -82,13 +114,28 @@ export class LattixConnection {
   // -- request / response -----------------------------------------------------
 
   request<T = unknown>(method: string, params?: unknown, options?: RequestOptions): Promise<T> {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.state === 'connected') {
+      return this.sendNow<T>(method, params, options)
+    }
+    // closed/idle: don't queue — the caller has no reason to expect this to
+    // resolve, and queueing would only delay the error. Same for "reconnect
+    // disabled, socket gone".
+    if (this.state === 'closed' || (this.state === 'idle' && !this.shouldReconnect)) {
       return Promise.reject(toProtocolError(new Error('not connected')))
     }
+    // connecting / reconnecting / idle (with reconnect on): queue briefly.
+    return this.enqueue<T>(method, params, options)
+  }
+
+  private sendNow<T>(
+    method: string,
+    params: unknown,
+    options: RequestOptions | undefined,
+  ): Promise<T> {
     const id = newId()
     const timeout = options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     const promise = this.pending.register<T>(id, timeout)
-    this.ws.send(
+    this.ws!.send(
       JSON.stringify({
         type: 'req',
         id,
@@ -97,6 +144,48 @@ export class LattixConnection {
       }),
     )
     return promise
+  }
+
+  private enqueue<T>(
+    method: string,
+    params: unknown,
+    options: RequestOptions | undefined,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const expiresAt = Date.now() + this.requestQueueWindowMs
+      const timer = setTimeout(() => {
+        const i = this.queue.findIndex((q) => q.timer === timer)
+        if (i >= 0) this.queue.splice(i, 1)
+        reject(toProtocolError(new Error('not connected')))
+      }, this.requestQueueWindowMs)
+      this.queue.push({
+        method,
+        params,
+        options,
+        resolve: resolve as (v: unknown) => void,
+        reject,
+        expiresAt,
+        timer,
+      })
+    })
+  }
+
+  private flushQueue(): void {
+    if (this.queue.length === 0) return
+    const snapshot = this.queue.splice(0, this.queue.length)
+    for (const q of snapshot) {
+      clearTimeout(q.timer)
+      this.sendNow(q.method, q.params, q.options).then(q.resolve, q.reject)
+    }
+  }
+
+  private drainQueue(err: unknown): void {
+    if (this.queue.length === 0) return
+    const snapshot = this.queue.splice(0, this.queue.length)
+    for (const q of snapshot) {
+      clearTimeout(q.timer)
+      q.reject(err)
+    }
   }
 
   // -- subscriptions ----------------------------------------------------------
@@ -122,6 +211,7 @@ export class LattixConnection {
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(this.currentUrl)
       this.ws = ws
+      const isReconnect = this.attempts > 0
       const onError = (err: Error) => {
         if (this.state !== 'connected' && this.state !== 'reconnecting') {
           this.setState('reconnecting')
@@ -134,6 +224,11 @@ export class LattixConnection {
         this.sendHello(ws)
         this.setState('connected')
         this.attempts = 0
+        // On a fresh `connected` state, replay any subscriptions the user
+        // registered before the disconnect so server-side PeerState gets
+        // its channel set restored. Then flush queued requests.
+        if (isReconnect) this.resubscribeAll()
+        this.flushQueue()
         resolve()
       })
       ws.on('message', (data) => this.onMessage(data as Buffer))
@@ -142,6 +237,21 @@ export class LattixConnection {
         // Suppress unhandled; reconnect logic handles it
       })
     })
+  }
+
+  /**
+   * Re-send `subscribe` for every channel the client still has handlers on.
+   * Fire-and-forget: failures here would be observable to push consumers
+   * (no events) but there's no useful way to surface them — the next
+   * reconnect will try again.
+   */
+  private resubscribeAll(): void {
+    const channels = this.subs.channelNames()
+    for (const channel of channels) {
+      // Use sendNow directly — we know the socket is OPEN at this point,
+      // and we don't want these to land in the queue we're about to flush.
+      this.sendNow('subscribe', { channel }, undefined).catch(() => undefined)
+    }
   }
 
   private sendHello(ws: WebSocket): void {
@@ -176,6 +286,7 @@ export class LattixConnection {
     if (this.state === 'closed') return
     if (!this.shouldReconnect) {
       this.setState('closed')
+      this.drainQueue(toProtocolError(new Error('connection closed')))
       return
     }
     this.scheduleReconnect()

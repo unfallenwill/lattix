@@ -26,6 +26,15 @@ export class Subscriptions {
     this.channels.delete(channel)
   }
 
+  /**
+   * Currently subscribed channels — used by the Connection to replay
+   * `subscribe` frames after a reconnect, so server-side PeerState gets
+   * the channel set restored without any user action.
+   */
+  channelNames(): string[] {
+    return [...this.channels.keys()]
+  }
+
   deliver(frame: ServerFrame): void {
     if (frame.type !== 'push' || !frame.channel) return
     const set = this.channels.get(frame.channel)
