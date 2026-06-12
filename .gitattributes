@@ -1,0 +1,32 @@
+# Normalise line endings — every text file is stored as LF in the repo,
+# regardless of what Windows / macOS / WSL puts on disk. Without this,
+# Prettier and ESLint flip-flop between contributors' machines and
+# diffs end up full of ^M noise.
+* text=auto eol=lf
+
+# Source code — explicit so editors that misdetect (e.g. .tsx as binary)
+# still treat these as text and respect eol=lf above.
+*.ts        text
+*.tsx       text
+*.js        text
+*.cjs       text
+*.mjs       text
+*.json      text
+*.md        text
+*.yml       text
+*.yaml      text
+
+# Shell + husky hooks — keep LF or they fail to execute on macOS/Linux
+# after a Windows checkout.
+*.sh        text eol=lf
+.husky/*    text eol=lf
+
+# GitHub language statistics — exclude generated / vendored content so
+# the bar on the repo page reflects actual hand-written code.
+package-lock.json  linguist-generated
+dist/**            linguist-generated
+coverage/**        linguist-generated
+*.tsbuildinfo      linguist-generated
+
+# Lockfiles diff terribly inline; tell GitHub to collapse by default.
+package-lock.json  -diff
