@@ -123,8 +123,22 @@ export interface FieldTypeManifest<TOptions = unknown> {
 /**
  * What a client sees when it calls `field.types.list`. The functional
  * methods (validate / serialize / defaultValue) are dropped because
- * they can't cross the wire; the client gets descriptive metadata only
- * and runs its own (UI-side) checks if it cares.
+ * they can't cross the wire; the client gets descriptive metadata only.
+ *
+ * Note on optionsSchema / valueSchema: deliberately NOT on the wire yet.
+ * The plan is to ship JSON-Schema serialisations of the zod schemas so
+ * a client can render a "new field" form, but zod 3.x has no stable
+ * built-in JSON-Schema emitter. Until we plug in `zod-to-json-schema`
+ * (or upgrade to zod 4 which has it), shipping a placeholder string
+ * pretending to be a schema is worse than shipping nothing — clients
+ * would treat the placeholder as data. Add the fields back when we
+ * have something real to put in them.
+ *
+ * Note on mutability: arrays here are NOT readonly because the wire
+ * shape is data-after-deserialisation, not a declaration. The manifest
+ * itself uses `readonly FilterOp[]` (it's a static declaration the
+ * runtime should not mutate); the wire copy is a fresh object the
+ * caller owns.
  */
 export interface FieldTypeManifestWire {
   id: FieldType
@@ -132,20 +146,17 @@ export interface FieldTypeManifestWire {
   category: FieldCategory
   display: FieldDisplayMeta
   storage: StorageDescriptor
-  operators: OperatorSupport
-  /**
-   * options + value schemas serialised to a JSON-Schema-ish object.
-   * Intentionally permissive (`unknown`) on the type — clients should
-   * not assume a specific JSON Schema dialect; the field is informative,
-   * not validation-bearing.
-   */
-  optionsSchema: unknown
-  valueSchema: unknown
+  operators: {
+    filter: FilterOp[]
+    sort: SortMode
+    aggregate: AggregateOp[]
+  }
 }
 
 /**
- * Drop the functional methods + project the schemas to their JSON form
- * so the manifest can travel over the wire.
+ * Drop the functional methods so the manifest can travel over the wire.
+ * Arrays are copied so the wire object can't share state with the
+ * registry (which would break readonly semantics on the source side).
  */
 export function toWireManifest<T>(m: FieldTypeManifest<T>): FieldTypeManifestWire {
   return {
@@ -154,12 +165,10 @@ export function toWireManifest<T>(m: FieldTypeManifest<T>): FieldTypeManifestWir
     category: m.category,
     display: m.display,
     storage: m.storage,
-    operators: m.operators,
-    // zod 3.x exposes `_def` introspection but not a stable JSON Schema
-    // serialiser; for now we ship a placeholder description so clients
-    // know the field exists. Replace with zod-to-json-schema when one of
-    // the dependents actually needs the structured form.
-    optionsSchema: { description: 'see @lattix/shared sources for the zod schema' },
-    valueSchema: { description: 'see @lattix/shared sources for the zod schema' },
+    operators: {
+      filter: [...m.operators.filter],
+      sort: m.operators.sort,
+      aggregate: [...m.operators.aggregate],
+    },
   }
 }

@@ -19,22 +19,10 @@ import type {
   ValidationResult,
 } from './field-type-manifest.js'
 
-/**
- * Backwards-compatible alias — pre-manifest code (services, tests)
- * called the type `FieldTypeDefinition` and reached for the same
- * 3 methods. A manifest IS a definition + more, so we expose the
- * narrower view as a TS structural subset.
- */
-export type FieldTypeDefinition<TOptions = unknown> = Pick<
-  FieldTypeManifest<TOptions>,
-  'validate' | 'serialize' | 'defaultValue'
-> & { type: FieldType }
-
 export type { ValidationResult }
 
 /**
- * The registry now holds full manifests. `.get()` returns a manifest
- * (still usable as a FieldTypeDefinition thanks to structural typing);
+ * The registry holds full manifests. `.get()` returns a manifest;
  * `.list()` returns every manifest. A future plugin loader will call
  * `.register()` at startup to add types beyond the 5 builtins.
  */

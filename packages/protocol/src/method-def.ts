@@ -13,9 +13,9 @@ import type { ZodTypeAny, z } from 'zod'
  *     whose params type comes from `z.input<paramsSchema>` and whose
  *     return type comes from `z.output<resultSchema>`.
  *   - Adding a new method = one `defineMethod()` + one `register()` call,
- *     instead of the previous 5-touchpoint dance (METHOD_NAMES set,
- *     PARAM_SCHEMAS record, Router switch case, client string literal,
- *     client `as` cast).
+ *     instead of the previous 5-touchpoint dance (a method-names set,
+ *     a per-method param schema, a Router PARAM_SCHEMAS record + switch
+ *     case, and a hand-written client `as { ... }` cast).
  *
  * resultSchema is NOT enforced at runtime by the client (cost of zod-
  * parsing every response is too high for list calls; clients trust their

@@ -124,14 +124,14 @@ describe('record.list sortBy goes through the manifest', () => {
     checkboxFieldId: string
   }> {
     const client = createClient(conn)
-    const { table } = await client.tables.create({ name: 'SortTest' })
-    const { field: numField } = await client.fields.create({
+    const { table } = await client.table.create({ name: 'SortTest' })
+    const { field: numField } = await client.field.create({
       tableId: table.id,
       name: 'Priority',
       type: 'number',
       options: {},
     })
-    const { field: cbField } = await client.fields.create({
+    const { field: cbField } = await client.field.create({
       tableId: table.id,
       name: 'Done',
       type: 'checkbox',
@@ -139,7 +139,7 @@ describe('record.list sortBy goes through the manifest', () => {
     })
     // Three records out of order numerically: 30, 10, 20.
     for (const n of [30, 10, 20]) {
-      await client.records.create({
+      await client.record.create({
         tableId: table.id,
         data: { [numField.id]: n, [cbField.id]: false },
       })
@@ -150,7 +150,7 @@ describe('record.list sortBy goes through the manifest', () => {
   it('sort by number field returns numeric order (asc)', async () => {
     const { tableId, numberFieldId } = await seed()
     const client = createClient(conn)
-    const { records } = await client.records.list({
+    const { records } = await client.record.list({
       tableId,
       limit: 10,
       sortBy: numberFieldId,
@@ -163,7 +163,7 @@ describe('record.list sortBy goes through the manifest', () => {
   it('sort by number field, desc', async () => {
     const { tableId, numberFieldId } = await seed()
     const client = createClient(conn)
-    const { records } = await client.records.list({
+    const { records } = await client.record.list({
       tableId,
       limit: 10,
       sortBy: numberFieldId,
@@ -176,15 +176,15 @@ describe('record.list sortBy goes through the manifest', () => {
   it('sort by unknown field id returns BAD_REQUEST', async () => {
     const { tableId } = await seed()
     const client = createClient(conn)
-    await expect(client.records.list({ tableId, limit: 10, sortBy: 'nope' })).rejects.toMatchObject(
-      { code: 'BAD_REQUEST' },
-    )
+    await expect(client.record.list({ tableId, limit: 10, sortBy: 'nope' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
   })
 
   it('sort by system column (updated_at) still works', async () => {
     const { tableId } = await seed()
     const client = createClient(conn)
-    const { records } = await client.records.list({
+    const { records } = await client.record.list({
       tableId,
       limit: 10,
       sortBy: 'updated_at',

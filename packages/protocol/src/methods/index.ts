@@ -72,11 +72,8 @@ const FieldTypeManifestWireSchema = z.object({
     sort: SortModeEnum,
     aggregate: z.array(AggregateOpEnum),
   }),
-  // any() is non-optional in zod's inference, unlike unknown(). The wire
-  // shape always carries these fields; consumers should treat them as
-  // arbitrary JSON, not as zod-validated.
-  optionsSchema: z.any(),
-  valueSchema: z.any(),
+  // Note: optionsSchema / valueSchema deliberately omitted until we ship
+  // a real JSON Schema serialiser (see @lattix/shared FieldTypeManifestWire).
 })
 
 // --- core --------------------------------------------------------------

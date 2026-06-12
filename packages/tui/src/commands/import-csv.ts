@@ -47,7 +47,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
       ? await createTableFromHeader(conn, header, data)
       : await findTableByName(conn, opts.tableName)
 
-    const { fields } = await client.fields.list({ tableId: table.id })
+    const { fields } = await client.field.list({ tableId: table.id })
     const colToField = mapColumnsToFields(header, fields as Field[])
     if (colToField.size === 0) {
       throw new Error('No CSV columns match any field in the target table')
@@ -69,7 +69,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
         return obj
       })
       try {
-        const res = await client.records.batch({
+        const res = await client.record.batch({
           tableId: table.id,
           operations: records.map((row) => ({ op: 'create' as const, data: row })),
         })

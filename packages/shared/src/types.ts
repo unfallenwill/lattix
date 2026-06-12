@@ -10,9 +10,9 @@ import type { FieldType } from '@lattix/protocol'
  * shadowing the built-in `Record<K, V>` utility type.
  *
  * The matching zod schemas live in @lattix/protocol (TableSchema /
- * FieldSchema / RecordRowSchema) so MethodDef result types can flow
- * through them; the TS interfaces here are kept for ergonomics and
- * because not everyone wants to import zod just to type a record.
+ * FieldSchema / RecordRowSchema, plus all *ParamsSchema). The TS
+ * interfaces here are kept for ergonomics — code that doesn't need
+ * runtime validation can stay zod-free.
  */
 
 export interface Table {
@@ -47,22 +47,3 @@ export interface RecordWithCells extends RecordRow {
   /** Values laid out in field order. Always aligned with `fields` of the same table. */
   cells: unknown[]
 }
-
-// ---------------------------------------------------------------------------
-// CRUD param schemas — moved to @lattix/protocol so MethodDef objects can
-// reference them. Re-exported here so existing call sites keep working.
-// ---------------------------------------------------------------------------
-
-export {
-  TableCreateParamsSchema,
-  TableUpdateParamsSchema,
-  FieldCreateParamsSchema,
-  FieldUpdateParamsSchema,
-  FieldReorderParamsSchema,
-  RecordCreateParamsSchema,
-  RecordUpdateParamsSchema,
-  RecordBatchOpSchema,
-  RecordBatchParamsSchema,
-  RecordImportParamsSchema,
-  type RecordBatchOp,
-} from '@lattix/protocol'

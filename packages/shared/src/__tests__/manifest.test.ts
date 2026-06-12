@@ -100,7 +100,7 @@ describe('FieldRegistry', () => {
 })
 
 describe('toWireManifest', () => {
-  it('strips functional methods but keeps every other field', () => {
+  it('keeps wire-safe metadata, drops functional + zod members', () => {
     const m = BUILTIN_FIELD_MANIFESTS[0]!
     const wire = toWireManifest(m)
     expect(wire.id).toBe(m.id)
@@ -109,9 +109,15 @@ describe('toWireManifest', () => {
     expect(wire.display).toEqual(m.display)
     expect(wire.operators).toEqual(m.operators)
     expect(wire.storage).toEqual(m.storage)
-    // Functional members must NOT be on the wire shape.
-    expect((wire as unknown as { validate?: unknown }).validate).toBeUndefined()
-    expect((wire as unknown as { serialize?: unknown }).serialize).toBeUndefined()
-    expect((wire as unknown as { defaultValue?: unknown }).defaultValue).toBeUndefined()
+    // Functional + zod members must NOT be on the wire shape.
+    for (const k of [
+      'validate',
+      'serialize',
+      'defaultValue',
+      'optionsSchema',
+      'valueSchema',
+    ] as const) {
+      expect((wire as unknown as Record<string, unknown>)[k]).toBeUndefined()
+    }
   })
 })

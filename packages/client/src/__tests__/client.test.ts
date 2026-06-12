@@ -71,18 +71,18 @@ describe('LattixClient typed SDK', () => {
     await h.closeServer()
   })
 
-  it('client.tables.list() reaches table.list and returns {tables}', async () => {
+  it('client.table.list() reaches table.list and returns {tables}', async () => {
     const client = createClient(conn)
-    const result = await client.tables.list({})
+    const result = await client.table.list({})
     expect(result.tables).toEqual([])
   })
 
   it('CRUD round-trip via the typed SDK', async () => {
     const client = createClient(conn)
-    const { table } = await client.tables.create({ name: 'SDK Test' })
+    const { table } = await client.table.create({ name: 'SDK Test' })
     expect(table.name).toBe('SDK Test')
 
-    const { field } = await client.fields.create({
+    const { field } = await client.field.create({
       tableId: table.id,
       name: 'Title',
       type: 'text',
@@ -91,13 +91,13 @@ describe('LattixClient typed SDK', () => {
     })
     expect(field.name).toBe('Title')
 
-    const { record } = await client.records.create({
+    const { record } = await client.record.create({
       tableId: table.id,
       data: { [field.id]: 'hello' },
     })
     expect(record.data[field.id]).toBe('hello')
 
-    const list = await client.records.list({ tableId: table.id, limit: 10 })
+    const list = await client.record.list({ tableId: table.id, limit: 10 })
     expect(list.records).toHaveLength(1)
     expect(list.total).toBe(1)
   })
@@ -112,7 +112,7 @@ describe('LattixClient typed SDK', () => {
   it('unknown action on a known domain rejects at call time', async () => {
     const client = createClient(conn)
     // Proxy lets you drill any path; the runtime check fires when you call.
-    const drill = (client.tables as unknown as Record<string, (p: unknown) => Promise<unknown>>)[
+    const drill = (client.table as unknown as Record<string, (p: unknown) => Promise<unknown>>)[
       'nope'
     ]!
     await expect(drill({})).rejects.toMatchObject({ message: /Unknown method/ })
@@ -129,6 +129,6 @@ describe('LattixClient typed SDK', () => {
 
   it('caches per-domain proxy so repeated access returns ===', () => {
     const client = createClient(conn)
-    expect(client.tables).toBe(client.tables)
+    expect(client.table).toBe(client.table)
   })
 })

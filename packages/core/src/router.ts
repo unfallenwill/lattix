@@ -103,13 +103,7 @@ function registerBuiltinHandlers(r: Router, deps: RouterDeps): void {
     return { ok: true as const }
   })
   r.register(m['field.types.list'], () => ({
-    // The schema-inferred result type marks optionsSchema/valueSchema
-    // as optional because zod can't express "always present, arbitrary
-    // JSON" cleanly; toWireManifest always writes both, so the cast is
-    // accurate. Keep this localised to the registration site.
-    types: fields.list().map((manifest) => toWireManifest(manifest)) as ResultOf<
-      (typeof m)['field.types.list']
-    >['types'],
+    types: fields.list().map((manifest) => toWireManifest(manifest)),
   }))
 
   r.register(m['record.list'], (p) => recordService.list(p))
