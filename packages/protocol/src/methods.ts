@@ -2,8 +2,9 @@ import { z } from 'zod'
 
 /**
  * Method names supported by the Core in MVP v0. Adding a new method requires
- * defining its params + result zod schema here, then registering a handler in
- * the Core Router.
+ * defining a MethodDef (see method-def.ts and methods/) — METHOD_NAMES is
+ * kept as a derived constant for backward compatibility but is no longer
+ * the source of truth.
  */
 export const METHOD_NAMES = [
   'core.health',
@@ -69,8 +70,7 @@ export const FIELD_TYPES = ['text', 'number', 'select', 'checkbox', 'date'] as c
 export type FieldType = (typeof FIELD_TYPES)[number]
 
 // ---------------------------------------------------------------------------
-// Param schemas — `z.unknown()` is used for `params` so the Router can pass
-// raw data to per-method validators. Concrete schemas live in shared/.
+// Reusable param schemas — referenced from method-def files in ./methods/
 // ---------------------------------------------------------------------------
 
 export const EmptyParamsSchema = z.object({}).strict()
@@ -89,3 +89,127 @@ export const ListRecordsParamsSchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .strict()
+
+// ---------------------------------------------------------------------------
+// CRUD param schemas — moved here from shared/types.ts so MethodDef files
+// (which live in protocol) can reference them without an upward dep on
+// shared. The shared package re-exports them for backward compat.
+// ---------------------------------------------------------------------------
+
+export const TableCreateParamsSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    description: z.string().max(2000).nullable().optional(),
+  })
+  .strict()
+
+export const TableUpdateParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    name: z.string().min(1).max(120).optional(),
+    description: z.string().max(2000).nullable().optional(),
+  })
+  .strict()
+
+export const FieldCreateParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    name: z.string().min(1).max(120),
+    type: z.enum(FIELD_TYPES),
+    options: z.record(z.unknown()).default({}),
+    required: z.boolean().default(false),
+  })
+  .strict()
+
+export const FieldUpdateParamsSchema = z
+  .object({
+    fieldId: z.string().min(1),
+    name: z.string().min(1).max(120).optional(),
+    options: z.record(z.unknown()).optional(),
+    required: z.boolean().optional(),
+  })
+  .strict()
+
+export const FieldReorderParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    order: z.array(z.string().min(1)),
+  })
+  .strict()
+
+export const RecordCreateParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    data: z.record(z.unknown()),
+  })
+  .strict()
+
+export const RecordUpdateParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    recordId: z.string().min(1),
+    data: z.record(z.unknown()),
+  })
+  .strict()
+
+export const RecordBatchOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('create'), data: z.record(z.unknown()) }).strict(),
+  z
+    .object({
+      op: z.literal('update'),
+      recordId: z.string().min(1),
+      data: z.record(z.unknown()),
+    })
+    .strict(),
+  z.object({ op: z.literal('delete'), recordId: z.string().min(1) }).strict(),
+])
+export type RecordBatchOp = z.infer<typeof RecordBatchOpSchema>
+
+export const RecordBatchParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    operations: z.array(RecordBatchOpSchema).min(1).max(1000),
+  })
+  .strict()
+
+export const RecordImportParamsSchema = z
+  .object({
+    tableId: z.string().min(1),
+    rows: z.array(z.record(z.unknown())).min(1),
+  })
+  .strict()
+
+// ---------------------------------------------------------------------------
+// Domain result schemas — minimal zod shapes for the wire payloads. They
+// duplicate the TS interfaces in @lattix/shared on purpose: protocol must
+// not import from shared, and zod schemas are what MethodDef result types
+// flow from. Keep these in lockstep when types evolve.
+// ---------------------------------------------------------------------------
+
+export const TableSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+
+export const FieldSchema = z.object({
+  id: z.string(),
+  tableId: z.string(),
+  name: z.string(),
+  type: z.enum(FIELD_TYPES),
+  options: z.record(z.unknown()),
+  position: z.number(),
+  required: z.boolean(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+
+export const RecordRowSchema = z.object({
+  id: z.string(),
+  tableId: z.string(),
+  data: z.record(z.unknown()),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})

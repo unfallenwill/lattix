@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import type { LattixConnection, ConnectionState } from '@lattix/client'
+import { createClient } from '@lattix/client'
 import type { Table, Field } from '@lattix/shared'
 import { connectToCore } from '../connection/connect.js'
 import { defaultCoreUrl } from '../connection/paths.js'
@@ -33,6 +34,7 @@ const DEFAULT_BATCH = 200
 export async function runImport(opts: ImportOptions): Promise<ImportResult> {
   const url = opts.url ?? defaultCoreUrl()
   const conn = opts.connect ? await opts.connect(url) : await connectToCore({ url })
+  const client = createClient(conn)
   try {
     const text = fs.readFileSync(opts.file, 'utf8')
     const rows = parseCsv(text)
@@ -45,10 +47,8 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
       ? await createTableFromHeader(conn, header, data)
       : await findTableByName(conn, opts.tableName)
 
-    const fieldsRes = (await conn.request('field.list', { tableId: table.id })) as {
-      fields: Field[]
-    }
-    const colToField = mapColumnsToFields(header, fieldsRes.fields)
+    const { fields } = await client.fields.list({ tableId: table.id })
+    const colToField = mapColumnsToFields(header, fields as Field[])
     if (colToField.size === 0) {
       throw new Error('No CSV columns match any field in the target table')
     }
@@ -69,10 +69,10 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
         return obj
       })
       try {
-        const res = (await conn.request('record.batch', {
+        const res = await client.records.batch({
           tableId: table.id,
           operations: records.map((row) => ({ op: 'create' as const, data: row })),
-        })) as { results: unknown[] }
+        })
         imported += res.results.length
       } catch (err) {
         errors += slice.length

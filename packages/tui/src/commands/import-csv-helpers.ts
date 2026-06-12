@@ -1,4 +1,5 @@
-import type { LattixConnection } from '@lattix/client'
+import type { LattixConnection, LattixClient } from '@lattix/client'
+import { createClient } from '@lattix/client'
 import type { Table, Field } from '@lattix/shared'
 import { inferColumnType } from './infer-types.js'
 
@@ -7,8 +8,9 @@ export async function findTableByName(
   name: string | undefined,
 ): Promise<Table> {
   if (!name) throw new Error('Missing --table <name> (or pass --auto-create)')
-  const res = (await conn.request('table.list')) as { tables: Table[] }
-  const t = res.tables.find((x) => x.name === name)
+  const client: LattixClient = createClient(conn)
+  const { tables } = await client.tables.list({})
+  const t = (tables as Table[]).find((x) => x.name === name)
   if (!t) throw new Error(`Table not found: ${name}`)
   return t
 }
@@ -18,22 +20,23 @@ export async function createTableFromHeader(
   header: string[],
   data: string[][],
 ): Promise<Table> {
-  const created = (await conn.request('table.create', {
+  const client: LattixClient = createClient(conn)
+  const { table } = await client.tables.create({
     name: `Imported ${new Date().toISOString().slice(0, 10)}`,
     description: 'Created by CSV import',
-  })) as { table: Table }
+  })
   for (let c = 0; c < header.length; c++) {
     const colName = (header[c] ?? '').trim() || `col_${c + 1}`
     const samples = data.map((r) => r[c] ?? '').slice(0, 50)
     const type = inferColumnType(samples)
-    await conn.request('field.create', {
-      tableId: created.table.id,
+    await client.fields.create({
+      tableId: (table as Table).id,
       name: colName,
       type,
       options: {},
     })
   }
-  return created.table
+  return table as Table
 }
 
 export function mapColumnsToFields(header: string[], fields: Field[]): Map<number, Field> {

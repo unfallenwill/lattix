@@ -1,4 +1,5 @@
-import type { LattixConnection } from '@lattix/client'
+import type { LattixConnection, LattixClient } from '@lattix/client'
+import { createClient } from '@lattix/client'
 import type { Table, Field, RecordRow } from '@lattix/shared'
 import { recordsChannel } from '@lattix/protocol'
 
@@ -19,9 +20,11 @@ export class DataStore {
   private subs = new Map<string, () => void>()
 
   private readonly conn: LattixConnection
+  private readonly client: LattixClient
 
   constructor(conn: LattixConnection) {
     this.conn = conn
+    this.client = createClient(conn)
   }
 
   subscribe(listener: () => void): () => void {
@@ -51,8 +54,8 @@ export class DataStore {
   }
 
   async loadTables(): Promise<void> {
-    const res = (await this.conn.request('table.list')) as { tables: Table[] }
-    this.tables = res.tables
+    const { tables } = await this.client.tables.list({})
+    this.tables = tables as Table[]
     if (!this.currentTableId && this.tables[0]) {
       await this.selectTable(this.tables[0].id)
     }
@@ -94,17 +97,14 @@ export class DataStore {
     const state = this.tableStates.get(tableId)
     if (!state) return
     try {
-      const [fieldsRes, recordsRes] = await Promise.all([
-        this.conn.request('field.list', { tableId }),
-        this.conn.request('record.list', { tableId, limit: 1000 }),
+      const [{ fields }, { records, total }] = await Promise.all([
+        this.client.fields.list({ tableId }),
+        this.client.records.list({ tableId, limit: 1000 }),
       ])
-      const fields = (fieldsRes as { fields: Field[] }).fields
-      const records = (recordsRes as { records: RecordRow[]; total: number }).records
-      const total = (recordsRes as { records: RecordRow[]; total: number }).total
       this.tableStates.set(tableId, {
         ...state,
-        fields,
-        records,
+        fields: fields as Field[],
+        records: records as RecordRow[],
         total,
         loading: false,
         error: null,
@@ -120,18 +120,19 @@ export class DataStore {
   }
 
   async createTable(name: string, description?: string): Promise<Table> {
-    const res = (await this.conn.request('table.create', {
+    const { table } = await this.client.tables.create({
       name,
       description: description ?? null,
-    })) as { table: Table }
-    this.tables = [...this.tables, res.table]
-    if (!this.currentTableId) await this.selectTable(res.table.id)
+    })
+    const t = table as Table
+    this.tables = [...this.tables, t]
+    if (!this.currentTableId) await this.selectTable(t.id)
     else this.emit()
-    return res.table
+    return t
   }
 
   async deleteTable(tableId: string): Promise<void> {
-    await this.conn.request('table.delete', { tableId })
+    await this.client.tables.delete({ tableId })
     this.tableStates.delete(tableId)
     this.unsubTable(tableId)
     this.tables = this.tables.filter((t) => t.id !== tableId)
@@ -149,9 +150,9 @@ export class DataStore {
     options?: Record<string, unknown>
     required?: boolean
   }): Promise<Field> {
-    const res = (await this.conn.request('field.create', input)) as { field: Field }
+    const { field } = await this.client.fields.create(input)
     await this.loadTableData(input.tableId)
-    return res.field
+    return field as Field
   }
 
   async updateRecord(input: {
@@ -160,7 +161,7 @@ export class DataStore {
     fieldId: string
     value: unknown
   }): Promise<void> {
-    await this.conn.request('record.update', {
+    await this.client.records.update({
       tableId: input.tableId,
       recordId: input.recordId,
       data: { [input.fieldId]: input.value },
@@ -178,16 +179,13 @@ export class DataStore {
   }
 
   async createRecord(tableId: string): Promise<RecordRow> {
-    const res = (await this.conn.request('record.create', {
-      tableId,
-      data: {},
-    })) as { record: RecordRow }
+    const { record } = await this.client.records.create({ tableId, data: {} })
     await this.loadTableData(tableId)
-    return res.record
+    return record as RecordRow
   }
 
   async deleteRecord(tableId: string, recordId: string): Promise<void> {
-    await this.conn.request('record.delete', { tableId, recordId })
+    await this.client.records.delete({ tableId, recordId })
     await this.loadTableData(tableId)
   }
   async dispose(): Promise<void> {
