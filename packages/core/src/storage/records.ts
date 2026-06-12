@@ -9,6 +9,17 @@ export interface ListRecordsOptions {
   offset: number
   sortBy?: string
   sortDir?: 'asc' | 'desc'
+  /**
+   * When sortBy is a field id (not a system column like 'updated_at' /
+   * 'created_at'), the caller passes the resolved sort SQL mode so we
+   * know how to coerce the JSON value extracted from `data`:
+   *   - 'numeric'  →  CAST(... AS REAL)
+   *   - 'date'     →  text compare (ISO dates sort lexicographically)
+   *   - 'boolean'  →  CAST(... AS INTEGER)
+   *   - 'natural'  →  plain text compare
+   * If omitted the caller is expected to use a system column key.
+   */
+  sortFieldMode?: 'numeric' | 'date' | 'boolean' | 'natural'
 }
 
 export interface IRecordStorage {
@@ -73,12 +84,38 @@ export class SqliteRecordStorage implements IRecordStorage {
     const total = (this.countStmt.get(opts.tableId) as { n: number }).n
     const dir = opts.sortDir === 'desc' ? 'DESC' : 'ASC'
     const sortKey = opts.sortBy ?? 'updated_at'
-    // Whitelist sortable columns to keep this safe with raw SQL
-    if (!['updated_at', 'created_at'].includes(sortKey)) {
-      throw new ProtocolException('BAD_REQUEST', `Unsupported sort key: ${sortKey}`)
+    // Two sort paths:
+    //   1. system column (updated_at / created_at) — order by column directly
+    //   2. field id (caller passes sortFieldMode) — order by JSON_EXTRACT
+    let orderBy: string
+    if (opts.sortFieldMode) {
+      // sortBy is a field id; SQLite's JSON1 path syntax is literal-only,
+      // so the id has to be safe. We accept only ULID-ish chars to keep
+      // raw-SQL safe even if the caller forgot to validate.
+      if (!/^[A-Za-z0-9_-]+$/.test(sortKey)) {
+        throw new ProtocolException('BAD_REQUEST', `Invalid field id for sort: ${sortKey}`)
+      }
+      const extract = `JSON_EXTRACT(data, '$.${sortKey}')`
+      switch (opts.sortFieldMode) {
+        case 'numeric':
+          orderBy = `CAST(${extract} AS REAL) ${dir}`
+          break
+        case 'boolean':
+          orderBy = `CAST(${extract} AS INTEGER) ${dir}`
+          break
+        case 'date':
+        case 'natural':
+        default:
+          orderBy = `${extract} ${dir}`
+      }
+    } else {
+      if (!['updated_at', 'created_at'].includes(sortKey)) {
+        throw new ProtocolException('BAD_REQUEST', `Unsupported sort key: ${sortKey}`)
+      }
+      orderBy = `${sortKey} ${dir}`
     }
     const sql = `SELECT * FROM tbl_record WHERE table_id = ?
-                 ORDER BY ${sortKey} ${dir}, id ${dir}
+                 ORDER BY ${orderBy}, id ${dir}
                  LIMIT ? OFFSET ?`
     const rows = this.db.prepare(sql).all(opts.tableId, opts.limit, opts.offset) as RecRow[]
     return { records: rows.map(rowToRecord), total }

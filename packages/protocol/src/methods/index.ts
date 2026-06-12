@@ -13,6 +13,7 @@ import {
   FieldReorderParamsSchema,
   FieldSchema,
   FieldUpdateParamsSchema,
+  FIELD_TYPES,
   ListRecordsParamsSchema,
   RecordBatchParamsSchema,
   RecordCreateParamsSchema,
@@ -25,6 +26,58 @@ import {
   TableSchema,
   TableUpdateParamsSchema,
 } from '../methods.js'
+
+// --- field type manifest (wire shape) ----------------------------------
+//
+// Mirrors @lattix/shared's FieldTypeManifestWire — duplicated here because
+// protocol must not import from shared, and result schemas have to be
+// zod objects living inside protocol. Keep in lockstep.
+const FilterOpEnum = z.enum([
+  'eq',
+  'neq',
+  'lt',
+  'lte',
+  'gt',
+  'gte',
+  'contains',
+  'starts_with',
+  'ends_with',
+  'is_empty',
+  'is_not_empty',
+])
+const SortModeEnum = z.enum(['natural', 'numeric', 'date', 'boolean', 'none'])
+const AggregateOpEnum = z.enum(['count', 'count_unique', 'count_empty', 'sum', 'avg', 'min', 'max'])
+const FieldCategoryEnum = z.enum(['primitive', 'reference', 'computed', 'system', 'attachment'])
+
+const FieldTypeManifestWireSchema = z.object({
+  id: z.enum(FIELD_TYPES),
+  version: z.number().int(),
+  category: FieldCategoryEnum,
+  display: z.object({
+    displayName: z.string(),
+    description: z.string(),
+    icon: z
+      .object({
+        emoji: z.string().optional(),
+        ascii: z.string().optional(),
+      })
+      .optional(),
+  }),
+  storage: z.object({
+    sqlType: z.enum(['TEXT', 'INTEGER', 'REAL', 'BLOB']),
+    indexable: z.boolean(),
+  }),
+  operators: z.object({
+    filter: z.array(FilterOpEnum),
+    sort: SortModeEnum,
+    aggregate: z.array(AggregateOpEnum),
+  }),
+  // any() is non-optional in zod's inference, unlike unknown(). The wire
+  // shape always carries these fields; consumers should treat them as
+  // arbitrary JSON, not as zod-validated.
+  optionsSchema: z.any(),
+  valueSchema: z.any(),
+})
 
 // --- core --------------------------------------------------------------
 
@@ -120,6 +173,14 @@ export const fieldReorder = defineMethod({
   resultSchema: z.object({ ok: z.literal(true) }),
 })
 
+export const fieldTypesList = defineMethod({
+  name: 'field.types.list',
+  summary:
+    'Describe every field type the runtime currently exposes — what they validate, what storage they use, what operators they support.',
+  paramsSchema: EmptyParamsSchema,
+  resultSchema: z.object({ types: z.array(FieldTypeManifestWireSchema) }),
+})
+
 // --- record -------------------------------------------------------------
 
 export const recordList = defineMethod({
@@ -198,6 +259,7 @@ export const ALL_METHODS = {
   'field.update': fieldUpdate,
   'field.delete': fieldDelete,
   'field.reorder': fieldReorder,
+  'field.types.list': fieldTypesList,
   'record.list': recordList,
   'record.get': recordGet,
   'record.create': recordCreate,

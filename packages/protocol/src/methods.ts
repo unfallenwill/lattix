@@ -19,6 +19,7 @@ export const METHOD_NAMES = [
   'field.update',
   'field.delete',
   'field.reorder',
+  'field.types.list',
   'record.list',
   'record.get',
   'record.create',

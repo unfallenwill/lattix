@@ -109,18 +109,22 @@ describe('LattixClient typed SDK', () => {
     expect(typeof health.ts).toBe('number')
   })
 
-  it('unknown action on a known domain is undefined', () => {
+  it('unknown action on a known domain rejects at call time', async () => {
     const client = createClient(conn)
-    const action = (client.tables as unknown as Record<string, unknown>)['nope']
-    expect(action).toBeUndefined()
+    // Proxy lets you drill any path; the runtime check fires when you call.
+    const drill = (client.tables as unknown as Record<string, (p: unknown) => Promise<unknown>>)[
+      'nope'
+    ]!
+    await expect(drill({})).rejects.toMatchObject({ message: /Unknown method/ })
   })
 
-  it('unknown domain still yields a (vacant) namespace proxy, but actions are undefined', () => {
+  it('unknown domain rejects at call time too', async () => {
     const client = createClient(conn)
-    const domain = (client as unknown as Record<string, unknown>)['nopeDomain']
-    expect(domain).toBeDefined()
-    const action = (domain as Record<string, unknown>)['list']
-    expect(action).toBeUndefined()
+    const domain = (
+      client as unknown as Record<string, Record<string, (p: unknown) => Promise<unknown>>>
+    )['nopeDomain']!
+    const drill = domain['list']!
+    await expect(drill({})).rejects.toMatchObject({ message: /Unknown method/ })
   })
 
   it('caches per-domain proxy so repeated access returns ===', () => {

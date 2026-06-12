@@ -6,7 +6,7 @@ import {
   type ParsedParamsOf,
   type ResultOf,
 } from '@lattix/protocol'
-import { type FieldRegistry } from '@lattix/shared'
+import { type FieldRegistry, toWireManifest } from '@lattix/shared'
 import { type TableService } from './services/table-service.js'
 import { type FieldService } from './services/field-service.js'
 import { type RecordService } from './services/record-service.js'
@@ -72,7 +72,7 @@ export class Router {
 // All builtin handlers in one place. Each one is type-checked against the
 // corresponding MethodDef's params + result schemas via Router.register.
 function registerBuiltinHandlers(r: Router, deps: RouterDeps): void {
-  const { tableService, fieldService, recordService, serverVersion } = deps
+  const { tableService, fieldService, recordService, fields, serverVersion } = deps
   const m: AllMethods = ALL_METHODS
 
   r.register(m['core.health'], () => ({ ok: true, ts: Date.now() }))
@@ -102,6 +102,15 @@ function registerBuiltinHandlers(r: Router, deps: RouterDeps): void {
     fieldService.reorder(p.tableId, p.order)
     return { ok: true as const }
   })
+  r.register(m['field.types.list'], () => ({
+    // The schema-inferred result type marks optionsSchema/valueSchema
+    // as optional because zod can't express "always present, arbitrary
+    // JSON" cleanly; toWireManifest always writes both, so the cast is
+    // accurate. Keep this localised to the registration site.
+    types: fields.list().map((manifest) => toWireManifest(manifest)) as ResultOf<
+      (typeof m)['field.types.list']
+    >['types'],
+  }))
 
   r.register(m['record.list'], (p) => recordService.list(p))
   r.register(m['record.get'], (p) => ({ record: recordService.get(p.tableId, p.recordId) }))
