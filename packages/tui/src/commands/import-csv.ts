@@ -30,24 +30,26 @@ export interface ImportResult {
 
 const DEFAULT_BATCH = 200
 
-// Placeholder; see subsequent patches.
 export async function runImport(opts: ImportOptions): Promise<ImportResult> {
+  // Validate the local input BEFORE doing any network / process work.
+  // Connecting to Core can spawn it (8s boot timeout) and the user
+  // shouldn't pay that cost just to learn their --file path is wrong.
+  const text = readCsvFileOrThrow(opts.file)
+  const rows = parseCsv(text)
+  if (rows.length === 0) throw new Error('CSV is empty')
+  const header = rows[0] as string[]
+  const data = rows.slice(1)
+  if (data.length === 0) throw new Error('CSV has no data rows')
+
   const url = opts.url ?? defaultCoreUrl()
   const conn = opts.connect ? await opts.connect(url) : await connectToCore({ url })
   const client = createClient(conn)
   try {
-    const text = fs.readFileSync(opts.file, 'utf8')
-    const rows = parseCsv(text)
-    if (rows.length === 0) throw new Error('CSV is empty')
-    const header = rows[0] as string[]
-    const data = rows.slice(1)
-    if (data.length === 0) throw new Error('CSV has no data rows')
-
     const table: Table = opts.autoCreate
       ? await createTableFromHeader(conn, header, data)
       : await findTableByName(conn, opts.tableName)
 
-    const { fields } = await client.fields.list({ tableId: table.id })
+    const { fields } = await client.field.list({ tableId: table.id })
     const colToField = mapColumnsToFields(header, fields as Field[])
     if (colToField.size === 0) {
       throw new Error('No CSV columns match any field in the target table')
@@ -69,7 +71,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
         return obj
       })
       try {
-        const res = await client.records.batch({
+        const res = await client.record.batch({
           tableId: table.id,
           operations: records.map((row) => ({ op: 'create' as const, data: row })),
         })
@@ -83,6 +85,24 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
   } finally {
     await conn.close().catch(() => undefined)
   }
+}
+
+/**
+ * Read the CSV file synchronously, with a friendly error for the
+ * common cases (missing file, directory, permission denied) so the
+ * caller doesn't have to interpret raw errno strings.
+ */
+function readCsvFileOrThrow(file: string): string {
+  try {
+    const stat = fs.statSync(file)
+    if (!stat.isFile()) throw new Error(`Not a file: ${file}`)
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code === 'ENOENT') throw new Error(`File not found: ${file}`)
+    if (e.code === 'EACCES') throw new Error(`Permission denied: ${file}`)
+    throw err
+  }
+  return fs.readFileSync(file, 'utf8')
 }
 
 export type { ConnectionState }

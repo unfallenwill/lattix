@@ -54,7 +54,7 @@ export class DataStore {
   }
 
   async loadTables(): Promise<void> {
-    const { tables } = await this.client.tables.list({})
+    const { tables } = await this.client.table.list({})
     this.tables = tables as Table[]
     if (!this.currentTableId && this.tables[0]) {
       await this.selectTable(this.tables[0].id)
@@ -98,8 +98,8 @@ export class DataStore {
     if (!state) return
     try {
       const [{ fields }, { records, total }] = await Promise.all([
-        this.client.fields.list({ tableId }),
-        this.client.records.list({ tableId, limit: 1000 }),
+        this.client.field.list({ tableId }),
+        this.client.record.list({ tableId, limit: 1000 }),
       ])
       this.tableStates.set(tableId, {
         ...state,
@@ -120,7 +120,7 @@ export class DataStore {
   }
 
   async createTable(name: string, description?: string): Promise<Table> {
-    const { table } = await this.client.tables.create({
+    const { table } = await this.client.table.create({
       name,
       description: description ?? null,
     })
@@ -132,7 +132,7 @@ export class DataStore {
   }
 
   async deleteTable(tableId: string): Promise<void> {
-    await this.client.tables.delete({ tableId })
+    await this.client.table.delete({ tableId })
     this.tableStates.delete(tableId)
     this.unsubTable(tableId)
     this.tables = this.tables.filter((t) => t.id !== tableId)
@@ -150,7 +150,7 @@ export class DataStore {
     options?: Record<string, unknown>
     required?: boolean
   }): Promise<Field> {
-    const { field } = await this.client.fields.create(input)
+    const { field } = await this.client.field.create(input)
     await this.loadTableData(input.tableId)
     return field as Field
   }
@@ -161,7 +161,7 @@ export class DataStore {
     fieldId: string
     value: unknown
   }): Promise<void> {
-    await this.client.records.update({
+    await this.client.record.update({
       tableId: input.tableId,
       recordId: input.recordId,
       data: { [input.fieldId]: input.value },
@@ -179,13 +179,13 @@ export class DataStore {
   }
 
   async createRecord(tableId: string): Promise<RecordRow> {
-    const { record } = await this.client.records.create({ tableId, data: {} })
+    const { record } = await this.client.record.create({ tableId, data: {} })
     await this.loadTableData(tableId)
     return record as RecordRow
   }
 
   async deleteRecord(tableId: string, recordId: string): Promise<void> {
-    await this.client.records.delete({ tableId, recordId })
+    await this.client.record.delete({ tableId, recordId })
     await this.loadTableData(tableId)
   }
   async dispose(): Promise<void> {

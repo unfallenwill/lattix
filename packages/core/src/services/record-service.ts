@@ -20,12 +20,37 @@ export class RecordService {
     sortDir?: 'asc' | 'desc'
   }): { records: RecordRow[]; total: number; limit: number; offset: number } {
     this.assertTable(input.tableId)
+    // If sortBy names one of our fields, look up the manifest's sort mode
+    // and pass it through; storage uses that to pick the right SQL
+    // coercion (numeric vs text vs date vs boolean). System columns
+    // ('updated_at' / 'created_at') skip this branch.
+    let sortFieldMode: 'numeric' | 'date' | 'boolean' | 'natural' | undefined
+    if (input.sortBy && input.sortBy !== 'updated_at' && input.sortBy !== 'created_at') {
+      const fields = this.deps.storage.fields.listByTable(input.tableId)
+      const target = fields.find((f) => f.id === input.sortBy || f.name === input.sortBy)
+      if (!target) {
+        throw new ProtocolException('BAD_REQUEST', `Unknown sort field: ${input.sortBy}`)
+      }
+      const manifest = this.deps.fields.get(target.type)
+      const mode = manifest.operators.sort
+      if (mode === 'none') {
+        throw new ProtocolException(
+          'BAD_REQUEST',
+          `Field type "${target.type}" does not support sort`,
+        )
+      }
+      sortFieldMode = mode
+      // Always pass the field id (not name) to storage so JSON_EXTRACT
+      // matches the on-disk shape.
+      input = { ...input, sortBy: target.id }
+    }
     const { records, total } = this.deps.storage.records.list({
       tableId: input.tableId,
       limit: input.limit,
       offset: input.offset,
       ...(input.sortBy !== undefined ? { sortBy: input.sortBy } : {}),
       ...(input.sortDir !== undefined ? { sortDir: input.sortDir } : {}),
+      ...(sortFieldMode !== undefined ? { sortFieldMode } : {}),
     })
     return { records, total, limit: input.limit, offset: input.offset }
   }

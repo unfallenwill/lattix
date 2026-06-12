@@ -1,35 +1,5 @@
 import { z } from 'zod'
 
-/**
- * Method names supported by the Core in MVP v0. Adding a new method requires
- * defining a MethodDef (see method-def.ts and methods/) — METHOD_NAMES is
- * kept as a derived constant for backward compatibility but is no longer
- * the source of truth.
- */
-export const METHOD_NAMES = [
-  'core.health',
-  'core.version',
-  'table.list',
-  'table.get',
-  'table.create',
-  'table.update',
-  'table.delete',
-  'field.list',
-  'field.create',
-  'field.update',
-  'field.delete',
-  'field.reorder',
-  'record.list',
-  'record.get',
-  'record.create',
-  'record.update',
-  'record.delete',
-  'record.batch',
-  'record.import',
-] as const
-
-export type MethodName = (typeof METHOD_NAMES)[number]
-
 // ---------------------------------------------------------------------------
 // Field option schemas (used in table/field methods)
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ export async function findTableByName(
 ): Promise<Table> {
   if (!name) throw new Error('Missing --table <name> (or pass --auto-create)')
   const client: LattixClient = createClient(conn)
-  const { tables } = await client.tables.list({})
+  const { tables } = await client.table.list({})
   const t = (tables as Table[]).find((x) => x.name === name)
   if (!t) throw new Error(`Table not found: ${name}`)
   return t
@@ -21,7 +21,7 @@ export async function createTableFromHeader(
   data: string[][],
 ): Promise<Table> {
   const client: LattixClient = createClient(conn)
-  const { table } = await client.tables.create({
+  const { table } = await client.table.create({
     name: `Imported ${new Date().toISOString().slice(0, 10)}`,
     description: 'Created by CSV import',
   })
@@ -29,7 +29,7 @@ export async function createTableFromHeader(
     const colName = (header[c] ?? '').trim() || `col_${c + 1}`
     const samples = data.map((r) => r[c] ?? '').slice(0, 50)
     const type = inferColumnType(samples)
-    await client.fields.create({
+    await client.field.create({
       tableId: (table as Table).id,
       name: colName,
       type,

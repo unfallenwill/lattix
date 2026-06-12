@@ -9,7 +9,7 @@ import {
   RecordBatchOpSchema,
   RecordBatchParamsSchema,
   RecordImportParamsSchema,
-} from '../types.js'
+} from '../methods.js'
 
 describe('Table schemas', () => {
   it('TableCreateParamsSchema enforces name length', () => {
