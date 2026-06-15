@@ -90,7 +90,15 @@ export async function main(argv: string[], io: IO = defaultIO): Promise<number> 
       // In tests we usually don't want to install signal handlers; callers
       // can use runStart() directly to get a handle they can shut down.
       await runStart(args.options, io)
-      return 0
+      // For the `start` command we deliberately NEVER resolve to 0 —
+      // resolving would let the script invoker call process.exit(0)
+      // and tear down the listening socket immediately. Instead we
+      // hand control to the event loop: the WebSocket server + the
+      // heartbeat interval keep it alive until SIGINT / SIGTERM, at
+      // which point runStart's signal handler does the graceful exit.
+      return new Promise<number>(() => {
+        /* intentionally never resolves */
+      })
     }
   }
 }
@@ -203,9 +211,25 @@ function clearPid(cfg: CoreConfig): void {
 }
 
 // When invoked as a script (not imported), parse argv and exit on completion.
-// `import.meta.url` equals the resolved entry URL only at top-level CLI use.
-const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`
-if (isMain) {
+// Comparing import.meta.url to argv[1] directly breaks under symlinks: the
+// npm bin shim node_modules/.bin/lattix-core is a symlink to dist/cli.js,
+// so argv[1] is the shim path while import.meta.url resolves to the real
+// file — they never match and main() doesn't run. Resolve both to their
+// real paths before comparing.
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+function isMainModule(): boolean {
+  try {
+    const here = realpathSync(fileURLToPath(import.meta.url))
+    const invoked = realpathSync(process.argv[1] ?? '')
+    return here === invoked
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule()) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {

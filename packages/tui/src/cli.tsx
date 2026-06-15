@@ -134,8 +134,25 @@ export async function runRecordImport(argv: string[], io: IO = defaultIO): Promi
 }
 
 // Only run when invoked as a script (not imported).
-const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`
-if (isMain) {
+// Comparing import.meta.url to argv[1] directly breaks under symlinks: the
+// npm bin shim node_modules/.bin/lattix is a symlink to dist/cli.js, so
+// argv[1] is the shim path while import.meta.url resolves to the real
+// file — they never match and main() doesn't run. Resolve both to their
+// real paths before comparing.
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+function isMainModule(): boolean {
+  try {
+    const here = realpathSync(fileURLToPath(import.meta.url))
+    const invoked = realpathSync(process.argv[1] ?? '')
+    return here === invoked
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule()) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {
